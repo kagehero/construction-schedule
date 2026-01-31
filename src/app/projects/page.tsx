@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { z } from "zod";
 import type { ContractType, Project } from "@/domain/projects/types";
 import { Card } from "@/components/ui/card";
+import { getProjects, createProject } from "@/lib/supabase/projects";
 
 const projectSchema = z.object({
-  title: z.string().min(1, "案件名は必須です"),
+  title: z.string().optional(), // Optional, will use siteName if empty
   customerName: z.string().min(1, "取引先会社名は必須です"),
   siteName: z.string().min(1, "現場名は必須です"),
   contractType: z.enum(["請負", "常用", "追加工事"]),
@@ -37,6 +38,26 @@ export default function ProjectsPage() {
     endDate: ""
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Load projects from database on mount
+  useEffect(() => {
+    loadProjects();
+  }, []);
+
+  const loadProjects = async () => {
+    try {
+      setIsLoading(true);
+      const data = await getProjects();
+      setProjects(data);
+    } catch (error) {
+      console.error("Failed to load projects:", error);
+      // Show error message to user if needed
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const isUkeoi = form.contractType === "請負";
 
@@ -47,7 +68,7 @@ export default function ProjectsPage() {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const parsed = projectSchema.safeParse(form);
     if (!parsed.success) {
@@ -62,28 +83,42 @@ export default function ProjectsPage() {
       return;
     }
     setErrors({});
-    const newProject: Project = {
-      id: crypto.randomUUID(),
-      title: form.title,
-      customerName: form.customerName,
-      siteName: form.siteName,
-      contractType: form.contractType as ContractType,
-      contractAmount: isUkeoi ? form.contractAmount ?? 0 : undefined,
-      siteAddress: form.siteAddress,
-      startDate: form.startDate,
-      endDate: form.endDate
-    };
-    setProjects((prev) => [...prev, newProject]);
-    setForm({
-      title: "",
-      customerName: "",
-      siteName: "",
-      contractType: "請負",
-      contractAmount: null,
-      siteAddress: "",
-      startDate: "",
-      endDate: ""
-    });
+    setIsSubmitting(true);
+
+    try {
+      const newProject: Omit<Project, 'id'> = {
+        title: form.title || form.siteName, // Use siteName as title if title is empty
+        customerName: form.customerName,
+        siteName: form.siteName,
+        contractType: form.contractType as ContractType,
+        contractAmount: isUkeoi ? form.contractAmount ?? 0 : undefined,
+        siteAddress: form.siteAddress,
+        startDate: form.startDate,
+        endDate: form.endDate
+      };
+
+      const createdProject = await createProject(newProject);
+      setProjects((prev) => [createdProject, ...prev]);
+      
+      // Reset form
+      setForm({
+        title: "",
+        customerName: "",
+        siteName: "",
+        contractType: "請負",
+        contractAmount: null,
+        siteAddress: "",
+        startDate: "",
+        endDate: ""
+      });
+    } catch (error) {
+      console.error("Failed to create project:", error);
+      setErrors({ 
+        submit: "案件の登録に失敗しました。もう一度お試しください。" 
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -193,19 +228,27 @@ export default function ProjectsPage() {
                 />
               </div>
             </div>
+            {errors.submit && (
+              <p className="text-xs text-red-400">{errors.submit}</p>
+            )}
             <div className="pt-2">
               <button
                 type="submit"
-                className="inline-flex items-center px-4 py-2 rounded-md bg-accent text-white text-sm font-medium hover:brightness-110"
+                disabled={isSubmitting}
+                className="inline-flex items-center px-4 py-2 rounded-md bg-accent text-white text-sm font-medium hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                登録
+                {isSubmitting ? "登録中..." : "登録"}
               </button>
             </div>
           </form>
         </Card>
         <Card title="案件一覧">
           <div className="space-y-2 text-xs max-h-[calc(100vh-140px)] overflow-auto pr-1">
-            {projects.map((p) => (
+            {isLoading ? (
+              <p className="text-slate-500 text-xs">読み込み中...</p>
+            ) : (
+              <>
+                {projects.map((p) => (
               <div
                 key={p.id}
                 className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
@@ -229,10 +272,12 @@ export default function ProjectsPage() {
                 </div>
               </div>
             ))}
-            {projects.length === 0 && (
-              <p className="text-slate-500 text-xs">
-                まだ案件が登録されていません。
-              </p>
+                {projects.length === 0 && (
+                  <p className="text-slate-500 text-xs">
+                    まだ案件が登録されていません。
+                  </p>
+                )}
+              </>
             )}
           </div>
         </Card>
