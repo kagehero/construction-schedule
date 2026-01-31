@@ -24,7 +24,10 @@ export async function getProjects(): Promise<Project[]> {
     .select('*')
     .order('created_at', { ascending: false });
 
-  if (error) throw error;
+  if (error) {
+    console.error('Supabase error:', error);
+    throw new Error(`データの取得に失敗しました: ${error.message}`);
+  }
   return data.map(toProject);
 }
 

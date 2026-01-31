@@ -1,6 +1,15 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- User profiles table (extends Supabase auth.users)
+CREATE TABLE IF NOT EXISTS user_profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('admin', 'viewer')),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Projects table
 CREATE TABLE IF NOT EXISTS projects (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -67,24 +76,92 @@ CREATE INDEX IF NOT EXISTS idx_day_site_status_work_line_id ON day_site_status(w
 CREATE INDEX IF NOT EXISTS idx_day_site_status_date ON day_site_status(date);
 
 -- Enable Row Level Security (RLS)
+ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE work_lines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE day_site_status ENABLE ROW LEVEL SECURITY;
 
--- Create policies (allow all for now - adjust based on your auth requirements)
-CREATE POLICY "Allow all operations on projects" ON projects
-  FOR ALL USING (true) WITH CHECK (true);
+-- User profiles policies
+CREATE POLICY "Users can view their own profile" ON user_profiles
+  FOR SELECT USING (auth.uid() = id);
 
-CREATE POLICY "Allow all operations on members" ON members
-  FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Users can update their own profile" ON user_profiles
+  FOR UPDATE USING (auth.uid() = id);
 
-CREATE POLICY "Allow all operations on work_lines" ON work_lines
-  FOR ALL USING (true) WITH CHECK (true);
+-- Projects policies
+CREATE POLICY "Anyone can view projects" ON projects
+  FOR SELECT USING (true);
 
-CREATE POLICY "Allow all operations on assignments" ON assignments
-  FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Only admins can insert projects" ON projects
+  FOR INSERT WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
 
-CREATE POLICY "Allow all operations on day_site_status" ON day_site_status
-  FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Only admins can update projects" ON projects
+  FOR UPDATE USING (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+CREATE POLICY "Only admins can delete projects" ON projects
+  FOR DELETE USING (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- Members policies
+CREATE POLICY "Anyone can view members" ON members
+  FOR SELECT USING (true);
+
+CREATE POLICY "Only admins can manage members" ON members
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- Work lines policies
+CREATE POLICY "Anyone can view work lines" ON work_lines
+  FOR SELECT USING (true);
+
+CREATE POLICY "Only admins can manage work lines" ON work_lines
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- Assignments policies
+CREATE POLICY "Anyone can view assignments" ON assignments
+  FOR SELECT USING (true);
+
+CREATE POLICY "Only admins can manage assignments" ON assignments
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- Day site status policies
+CREATE POLICY "Anyone can view day site status" ON day_site_status
+  FOR SELECT USING (true);
+
+CREATE POLICY "Only admins can manage day site status" ON day_site_status
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );

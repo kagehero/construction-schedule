@@ -11,6 +11,9 @@ import type {
   DaySiteStatus
 } from "@/domain/schedule/types";
 import { createAssignmentsForRange } from "@/domain/schedule/service";
+import { useAuth } from "@/contexts/AuthContext";
+import { AuthGuard } from "@/components/AuthGuard";
+import toast from "react-hot-toast";
 
 const mockMembers: Member[] = [
   { id: "m1", name: "寺道雅気" },
@@ -84,7 +87,7 @@ export default function SchedulePage() {
   const [modalMemberIds, setModalMemberIds] = useState<string[]>([]);
   const [modalHolidayWeekdays, setModalHolidayWeekdays] = useState<number[]>([]);
 
-  const isAdmin = CURRENT_USER_ROLE === "admin";
+  const { isAdmin, signOut, profile } = useAuth();
 
   // 表示するワークグループをフィルタリング
   const displayedLines = useMemo(() => {
@@ -151,11 +154,11 @@ export default function SchedulePage() {
     }
     // 期間が設定されていない場合は7日分を表示
     return Array.from({ length: DAYS_VISIBLE_IN_VIEWPORT }, (_, i) => {
-      const d = addDays(baseDate, i);
-      return {
-        date: d,
-        iso: d.toISOString().slice(0, 10)
-      };
+        const d = addDays(baseDate, i);
+        return {
+          date: d,
+          iso: d.toISOString().slice(0, 10)
+        };
     });
   }, [baseDate, rangeStart, rangeEnd]);
 
@@ -165,6 +168,10 @@ export default function SchedulePage() {
     );
 
   const toggleLock = (workLineId: string, iso: string) => {
+    if (!isAdmin) {
+      toast.error('この操作は管理者のみ実行できます。閲覧者権限では編集操作はできません。');
+      return;
+    }
     setDayStatuses((prev) => {
       const exists = prev.find(
         (s) => s.workLineId === workLineId && s.date === iso
@@ -193,7 +200,11 @@ export default function SchedulePage() {
   };
 
   const openSelection = (workLineId: string, iso: string) => {
-    if (!isAdmin || isCellLocked(workLineId, iso)) return;
+    if (isCellLocked(workLineId, iso)) return;
+    if (!isAdmin) {
+      toast.error('この操作は管理者のみ実行できます。閲覧者権限では編集操作はできません。');
+      return;
+    }
     setSelection({ workLineId, date: iso });
     const current = assignments.filter(
       (a) => a.workLineId === workLineId && a.date === iso && !a.isHoliday
@@ -212,7 +223,10 @@ export default function SchedulePage() {
   };
 
   const applySelection = () => {
-    if (!isAdmin) return;
+    if (!isAdmin) {
+      toast.error('この操作は管理者のみ実行できます。閲覧者権限では編集操作はできません。');
+      return;
+    }
     if (!selection) return;
     const { workLineId, date } = selection;
     const selectedDate = new Date(date);
@@ -243,7 +257,10 @@ export default function SchedulePage() {
     memberIds?: string[],
     holidayWeekdaysParam?: number[]
   ) => {
-    if (!isAdmin) return;
+    if (!isAdmin) {
+      toast.error('この操作は管理者のみ実行できます。閲覧者権限では編集操作はできません。');
+      return;
+    }
     const finalWorkLineId = workLineId ?? selectedWorkLineId;
     const finalStartDate = startDate ?? rangeStart;
     const finalEndDate = endDate ?? rangeEnd;
@@ -336,8 +353,9 @@ export default function SchedulePage() {
     );
 
   return (
-    <div className="h-screen flex flex-col">
-      <header className="px-6 py-3 border-b border-slate-800 flex items-center justify-between">
+    <AuthGuard>
+      <div className="h-screen flex flex-col">
+        <header className="px-6 py-3 border-b border-slate-800 flex items-center justify-between">
         <div className="flex items-baseline gap-4">
           <h1 className="text-lg font-semibold">工程・人員配置</h1>
           <span className="text-xs text-slate-400">
@@ -354,8 +372,56 @@ export default function SchedulePage() {
         </div>
       </header>
       <div className="flex-1 overflow-hidden grid grid-rows-[auto_minmax(0,1fr)] gap-2 p-3">
-        <Card title="期間まとめて配置 / 休み設定" className="text-xs">
-          <div className="flex flex-wrap items-end gap-4">
+        {/* ビューア用のフィルタリングカード */}
+        {!isAdmin && (
+          <Card title="工程表フィルター" className="text-xs">
+            <div className="flex flex-wrap items-end gap-4">
+              <div>
+                <label className="block mb-1">作業班</label>
+                <select
+                  className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1 text-[11px]"
+                  value={filteredWorkLineId}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setFilteredWorkLineId(value);
+                  }}
+                >
+                  <option value="">すべて表示</option>
+                  {mockLines.map((line) => (
+                    <option key={line.id} value={line.id}>
+                      {line.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <div>
+                  <label className="block mb-1">開始日</label>
+                  <input
+                    type="date"
+                    className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1"
+                    value={rangeStart}
+                    onChange={(e) => setRangeStart(e.target.value)}
+                  />
+                </div>
+                <span className="mt-6">〜</span>
+                <div>
+                  <label className="block mb-1">終了日</label>
+                  <input
+                    type="date"
+                    className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1"
+                    value={rangeEnd}
+                    onChange={(e) => setRangeEnd(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+          </Card>
+        )}
+        {/* 管理者用の期間まとめて配置カード */}
+        {isAdmin && (
+          <Card title="期間まとめて配置 / 休み設定" className="text-xs">
+            <div className="flex flex-wrap items-end gap-4">
             <div>
               <label className="block mb-1">作業班</label>
               <select
@@ -445,6 +511,7 @@ export default function SchedulePage() {
             </div>
           </div>
         </Card>
+        )}
         <Card title="工程表" className="text-xs overflow-hidden">
           <div className="flex items-center gap-2 mb-2">
             <button
@@ -521,15 +588,15 @@ export default function SchedulePage() {
                         isSelected ? "bg-slate-800/50" : "bg-slate-900/60"
                       }`}>
                         <div className="flex items-center gap-2 min-w-0">
-                          <span
+                        <span
                             className="inline-block w-1.5 h-8 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: line.color }}
-                          />
+                          style={{ backgroundColor: line.color }}
+                        />
                           <span className={`text-xs truncate ${isSelected ? "font-semibold" : ""}`}>
                             {line.name}
                           </span>
-                        </div>
-                      </td>
+                      </div>
+                    </td>
                     {days.map((d) => {
                       const iso = d.iso;
                       const cellAssignments = getCellAssignments(line.id, iso);
@@ -560,14 +627,17 @@ export default function SchedulePage() {
                             </div>
                             <button
                               type="button"
-                              onClick={() => openSelection(line.id, iso)}
-                              disabled={!isAdmin || locked}
+                              onClick={() => {
+                                if (locked) return;
+                                openSelection(line.id, iso);
+                              }}
+                              disabled={locked}
                               className={`w-full flex-1 px-1.5 py-1 text-left rounded min-w-0 overflow-hidden ${
-                                !isAdmin || locked
+                                locked
                                   ? "bg-slate-900/40 text-slate-500 cursor-not-allowed"
                                   : "hover:bg-slate-800/60"
                               }`}
-                            >
+                          >
                               <div className="flex flex-wrap gap-1 min-w-0 items-center">
                                 {(() => {
                                   // 列の幅に応じて表示できる人数を計算（各バッジは約28px、gapは4px）
@@ -579,33 +649,33 @@ export default function SchedulePage() {
                                   return (
                                     <>
                                       {visibleAssignments.map((a) => {
-                                        const member =
+                                const member =
                                           mockMembers.find(
                                             (m) => m.id === a.memberId
                                           ) ?? mockMembers[0];
-                                        return (
-                                          <span
-                                            key={a.id}
+                                return (
+                                  <span
+                                    key={a.id}
                                             title={member.name}
                                             className="inline-flex items-center justify-center w-6 h-6 rounded-full border border-slate-600 bg-slate-900 text-[10px] flex-shrink-0"
-                                          >
+                                  >
                                             {getMemberShortName(member.name)}
-                                          </span>
-                                        );
-                                      })}
+                                  </span>
+                                );
+                              })}
                                       {remainingCount > 0 && (
                                         <span 
                                           className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full border border-slate-600 bg-slate-800 text-[10px] text-slate-300 flex-shrink-0"
                                           title={`他${remainingCount}名`}
                                         >
                                           +{remainingCount}
-                                        </span>
-                                      )}
+                                </span>
+                              )}
                                     </>
                                   );
                                 })()}
-                              </div>
-                            </button>
+                            </div>
+                          </button>
                           </div>
                         </td>
                       );
@@ -818,7 +888,8 @@ export default function SchedulePage() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </AuthGuard>
   );
 }
 

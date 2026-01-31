@@ -5,6 +5,9 @@ import { z } from "zod";
 import type { ContractType, Project } from "@/domain/projects/types";
 import { Card } from "@/components/ui/card";
 import { getProjects, createProject, updateProject, deleteProject } from "@/lib/supabase/projects";
+import { useAuth } from "@/contexts/AuthContext";
+import { AuthGuard } from "@/components/AuthGuard";
+import toast from "react-hot-toast";
 
 const projectSchema = z.object({
   title: z.string().optional(), // Optional, will use siteName if empty
@@ -43,6 +46,7 @@ export default function ProjectsPage() {
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const { isAdmin, signOut, profile } = useAuth();
 
   // Load projects from database on mount
   useEffect(() => {
@@ -54,9 +58,11 @@ export default function ProjectsPage() {
       setIsLoading(true);
       const data = await getProjects();
       setProjects(data);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to load projects:", error);
-      // Show error message to user if needed
+      setErrors({ 
+        submit: error.message || "データの読み込みに失敗しました。環境変数が正しく設定されているか確認してください。" 
+      });
     } finally {
       setIsLoading(false);
     }
@@ -234,15 +240,31 @@ export default function ProjectsPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col">
-      <header className="px-6 py-3 border-b border-slate-800 flex items-center justify-between">
-        <div className="flex items-baseline gap-4">
-          <h1 className="text-lg font-semibold">案件立ち上げ</h1>
-          <span className="text-xs text-slate-400">
-            取引先・現場・契約情報の基本登録
-          </span>
-        </div>
-      </header>
+    <AuthGuard requireAdmin={true}>
+      <div className="h-screen flex flex-col">
+        <header className="px-6 py-3 border-b border-slate-800 flex items-center justify-between">
+          <div className="flex items-baseline gap-4">
+            <h1 className="text-lg font-semibold">案件立ち上げ</h1>
+            <span className="text-xs text-slate-400">
+              取引先・現場・契約情報の基本登録
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-[11px]">
+            {profile && (
+              <>
+                <span className="px-2 py-0.5 rounded-full border border-slate-600 text-slate-200">
+                  {profile.email}
+                </span>
+                <button
+                  onClick={signOut}
+                  className="px-2 py-0.5 rounded-full border border-slate-600 text-slate-200 hover:bg-slate-800 text-[10px]"
+                >
+                  ログアウト
+                </button>
+              </>
+            )}
+          </div>
+        </header>
       <div className="flex-1 overflow-hidden grid grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)] gap-4 p-4">
         <Card title={editingProject ? "案件編集" : "新規案件登録"}>
           <form className="space-y-4 text-sm" onSubmit={editingProject ? handleUpdate : handleSubmit}>
@@ -369,6 +391,14 @@ export default function ProjectsPage() {
         </Card>
         <Card title="案件一覧">
           <div className="space-y-2 text-xs max-h-[calc(100vh-140px)] overflow-auto pr-1">
+            {errors.submit && !isLoading && (
+              <div className="mb-2 p-2 bg-red-900/20 border border-red-800 rounded-md">
+                <p className="text-xs text-red-400">{errors.submit}</p>
+                <p className="text-xs text-red-500 mt-1">
+                  .env.localファイルにNEXT_PUBLIC_SUPABASE_URLとNEXT_PUBLIC_SUPABASE_ANON_KEYが設定されているか確認してください。
+                </p>
+              </div>
+            )}
             {isLoading ? (
               <p className="text-slate-500 text-xs">読み込み中...</p>
             ) : (
@@ -464,7 +494,8 @@ export default function ProjectsPage() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </AuthGuard>
   );
 }
 
