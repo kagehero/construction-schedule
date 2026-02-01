@@ -70,9 +70,14 @@ export default function LoginPage() {
     try {
       await signUp(email, password);
       setSuccess('アカウントが作成されました。ログインしてください。');
-      setActiveTab('login');
+      setEmail('');
       setPassword('');
       setConfirmPassword('');
+      setError('');
+      // ログインタブに切り替え
+      setTimeout(() => {
+        setActiveTab('login');
+      }, 100);
     } catch (err: any) {
       let errorMessage = 'アカウントの作成に失敗しました';
       
