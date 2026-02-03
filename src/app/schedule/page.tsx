@@ -532,15 +532,15 @@ export default function SchedulePage() {
   return (
     <AuthGuard>
     <div className="h-screen flex flex-col">
-      <header className="px-6 py-3 border-b border-slate-800 flex items-center justify-between">
+      <header className="px-6 py-3 border-b border-theme-border flex items-center justify-between">
         <div className="flex items-baseline gap-4">
-          <h1 className="text-lg font-semibold">工程・人員配置</h1>
-          <span className="text-xs text-slate-400">
+          <h1 className="text-lg font-semibold text-theme-text">工程・人員配置</h1>
+          <span className="text-xs text-theme-text-muted">
             工程 × 日付 × 人員を一画面で直感的に操作
           </span>
         </div>
         <div className="flex items-center gap-2 text-[11px]">
-          <span className="px-2 py-0.5 rounded-full border border-slate-600 text-slate-200">
+          <span className="px-2 py-0.5 rounded-full border border-theme-border text-theme-text">
             ロール:{" "}
             <span className="font-semibold">
               {isAdmin ? "管理者（編集可）" : "閲覧者（閲覧のみ）"}
@@ -556,7 +556,7 @@ export default function SchedulePage() {
               <div>
                 <label className="block mb-1">作業班</label>
                 <select
-                  className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1 text-[11px]"
+                  className="rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-2 py-1 text-[11px]"
                   value={filteredWorkLineId}
                   onChange={(e) => {
                     const value = e.target.value;
@@ -575,7 +575,7 @@ export default function SchedulePage() {
                 <label className="block mb-1">開始日</label>
                 <input
                   type="date"
-                  className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1 text-[11px]"
+                  className="rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-2 py-1 text-[11px]"
                   value={rangeStartDate}
                   onChange={(e) => {
                     const value = e.target.value;
@@ -597,7 +597,7 @@ export default function SchedulePage() {
                 <label className="block mb-1">終了日</label>
                 <input
                   type="date"
-                  className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1 text-[11px]"
+                  className="rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-2 py-1 text-[11px]"
                   value={rangeEndDate}
                   onChange={(e) => {
                     const value = e.target.value;
@@ -625,7 +625,7 @@ export default function SchedulePage() {
             <div>
               <label className="block mb-1">作業班</label>
               <select
-                className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1 text-[11px]"
+                className="rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-2 py-1 text-[11px]"
                 value={selectedWorkLineId}
                 onChange={(e) => {
                   const value = e.target.value;
@@ -645,7 +645,7 @@ export default function SchedulePage() {
               <label className="block mb-1">開始日</label>
               <input
                 type="date"
-                className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1 text-[11px]"
+                className="rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-2 py-1 text-[11px]"
                 value={rangeStartDate}
                 onChange={(e) => {
                   const value = e.target.value;
@@ -667,7 +667,7 @@ export default function SchedulePage() {
               <label className="block mb-1">終了日</label>
               <input
                 type="date"
-                className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1 text-[11px]"
+                className="rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-2 py-1 text-[11px]"
                 value={rangeEndDate}
                 onChange={(e) => {
                   const value = e.target.value;
@@ -696,7 +696,7 @@ export default function SchedulePage() {
                     className={`px-2 py-1 rounded-full border text-[11px] ${
                       selectedMemberIds.includes(m.id)
                         ? "bg-accent border-accent text-white"
-                        : "bg-slate-900 border-slate-700 text-slate-200"
+                        : "bg-theme-bg-input border-theme-border text-theme-text"
                     }`}
                   >
                     {m.name}
@@ -714,8 +714,8 @@ export default function SchedulePage() {
                     onClick={() => toggleHolidayWeekday(i)}
                     className={`w-7 h-7 rounded-full text-[11px] border ${
                       holidayWeekdays.includes(i)
-                        ? "bg-slate-100 text-slate-900 border-slate-100"
-                        : "bg-slate-900 text-slate-100 border-slate-700"
+                        ? "bg-theme-card text-theme-text border-theme-border"
+                        : "bg-theme-bg-input text-theme-text border-theme-border"
                     }`}
                   >
                     {label}
@@ -741,7 +741,7 @@ export default function SchedulePage() {
               type="button"
               onClick={goToPrevWeek}
               disabled={isAnimating}
-              className="px-3 py-1 rounded-md bg-slate-800 border border-slate-700 text-xs hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+              className="px-3 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
             >
               ← 前の週
             </button>
@@ -749,7 +749,7 @@ export default function SchedulePage() {
               type="button"
               onClick={goToToday}
               disabled={isAnimating}
-              className="px-3 py-1 rounded-md bg-slate-800 border border-slate-700 text-xs hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+              className="px-3 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
             >
               今週に戻る
             </button>
@@ -757,11 +757,11 @@ export default function SchedulePage() {
               type="button"
               onClick={goToNextWeek}
               disabled={isAnimating}
-              className="px-3 py-1 rounded-md bg-slate-800 border border-slate-700 text-xs hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+              className="px-3 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
             >
               次の週 →
             </button>
-            <span className="text-xs text-slate-400 ml-auto">
+            <span className="text-xs text-theme-text-muted ml-auto">
               {days.length > 0 && (
                 <>
                   {format(days[0].date, "yyyy年MM月dd日", { locale: ja })} 〜 {format(days[days.length - 1].date, "yyyy年MM月dd日", { locale: ja })}
@@ -786,14 +786,14 @@ export default function SchedulePage() {
                 ))}
               </colgroup>
               <thead>
-                <tr className="sticky top-0 z-20 bg-slate-900 shadow-[0_1px_0_0_rgba(51,65,85,1)]">
-                  <th className="sticky left-0 z-30 border-b border-r border-slate-700 px-2 py-1 text-left bg-slate-900">
+                <tr className="sticky top-0 z-20 bg-theme-bg-input text-theme-text shadow-[0_1px_0_0_var(--color-border)]">
+                  <th className="sticky left-0 z-30 border-b border-r border-theme-border px-2 py-1 text-left bg-theme-bg-input text-theme-text">
                     班
                   </th>
                   {days.map((d) => (
                     <th
                       key={d.iso}
-                      className={`sticky top-0 z-20 border-b border-l border-slate-700 px-1 py-1 text-center overflow-hidden transition-all duration-300 ease-in-out bg-slate-900 ${
+                      className={`sticky top-0 z-20 border-b border-l border-theme-border px-1 py-1 text-center overflow-hidden transition-all duration-300 ease-in-out bg-theme-bg-input text-theme-text ${
                         slideDirection === 'left' 
                           ? 'translate-x-[-100%] opacity-0' 
                           : slideDirection === 'right' 
@@ -803,7 +803,7 @@ export default function SchedulePage() {
                       style={{ maxWidth: 0 }}
                     >
                       <div className="truncate">{format(d.date, "MM/dd", { locale: ja })}</div>
-                      <div className="text-[10px] text-slate-400 truncate">
+                      <div className="text-[10px] text-theme-text-muted truncate">
                         {format(d.date, "E", { locale: ja })}
                       </div>
                     </th>
@@ -813,13 +813,13 @@ export default function SchedulePage() {
               <tbody>
                 {isLoadingData ? (
                   <tr>
-                    <td colSpan={days.length + 1} className="text-center py-4 text-slate-400">
+                    <td colSpan={days.length + 1} className="text-center py-4 text-theme-text-muted">
                       データを読み込み中...
                     </td>
                   </tr>
                 ) : displayedLines.length === 0 ? (
                   <tr>
-                    <td colSpan={days.length + 1} className="text-center py-4 text-slate-400">
+                    <td colSpan={days.length + 1} className="text-center py-4 text-theme-text-muted">
                       作業グループが登録されていません。案件登録ページで作業グループを設定してください。
                     </td>
                   </tr>
@@ -827,16 +827,16 @@ export default function SchedulePage() {
                   displayedLines.map((line) => {
                   const isSelected = filteredWorkLineId === line.id;
                   return (
-                    <tr key={line.id} className={isSelected ? "bg-slate-800/30" : ""} style={{ height: '110px', lineHeight: '110px' }}>
-                      <td className={`sticky left-0 z-10 border-t border-r border-slate-700 px-2 py-2 text-left align-top overflow-hidden ${
-                        isSelected ? "bg-slate-800/50" : "bg-slate-900/60"
+                    <tr key={line.id} className={isSelected ? "bg-theme-bg-elevated/30" : ""} style={{ height: '110px', lineHeight: '110px' }}>
+                      <td className={`sticky left-0 z-10 border-t border-r border-theme-border px-2 py-2 text-left align-top overflow-hidden ${
+                        isSelected ? "bg-theme-bg-elevated/50" : "bg-theme-bg-input/60"
                       }`} style={{ height: '110px', maxHeight: '110px', verticalAlign: 'top', padding: '8px', lineHeight: 'normal' }}>
                         <div className="flex items-center gap-2 min-w-0">
                         <span
                             className="inline-block w-1.5 h-8 rounded-full flex-shrink-0"
                           style={{ backgroundColor: line.color }}
                         />
-                          <span className={`text-xs truncate ${isSelected ? "font-semibold" : ""}`}>
+                          <span className={`text-xs truncate text-theme-text ${isSelected ? "font-semibold" : ""}`}>
                             {line.name}
                           </span>
                       </div>
@@ -851,7 +851,7 @@ export default function SchedulePage() {
                       return (
                         <td
                           key={iso}
-                          className={`border-t border-l border-slate-800 align-top overflow-hidden transition-all duration-300 ease-in-out ${
+                          className={`border-t border-l border-theme-border align-top overflow-hidden transition-all duration-300 ease-in-out ${
                             slideDirection === 'left' 
                               ? 'translate-x-[-100%] opacity-0' 
                               : slideDirection === 'right' 
@@ -886,8 +886,8 @@ export default function SchedulePage() {
                               disabled={locked}
                               className={`w-full px-1.5 py-0.5 text-left rounded min-w-0 overflow-hidden ${
                                 locked
-                                  ? "bg-slate-900/40 text-slate-500 cursor-not-allowed"
-                                  : "hover:bg-slate-800/60"
+                                  ? "bg-theme-bg-input/40 text-theme-text-muted cursor-not-allowed"
+                                  : "hover:bg-theme-bg-elevated/60"
                               }`}
                               style={{ height: '40px', minHeight: '40px', maxHeight: '40px', flexShrink: 0, overflow: 'hidden' }}
                           >
@@ -910,7 +910,7 @@ export default function SchedulePage() {
                                   <span
                                     key={a.id}
                                             title={member.name}
-                                            className="inline-flex items-center justify-center w-6 h-6 rounded-full border border-slate-600 bg-slate-900 text-[10px] flex-shrink-0"
+                                            className="inline-flex items-center justify-center w-6 h-6 rounded-full border border-theme-border bg-theme-bg-input text-theme-text text-[10px] flex-shrink-0"
                                   >
                                             {getMemberShortName(member.name)}
                                   </span>
@@ -918,7 +918,7 @@ export default function SchedulePage() {
                               })}
                                       {remainingCount > 0 && (
                                         <span 
-                                          className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full border border-slate-600 bg-slate-800 text-[10px] text-slate-300 flex-shrink-0"
+                                          className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full border border-theme-border bg-theme-bg-elevated text-[10px] text-theme-text-muted-strong flex-shrink-0"
                                           title={`他${remainingCount}名`}
                                         >
                                           +{remainingCount}
@@ -930,7 +930,7 @@ export default function SchedulePage() {
                             </div>
                           </button>
                           
-                            <div className="flex items-center justify-end text-[9px] text-slate-500 min-w-0 flex-shrink-0" style={{ height: '24px', minHeight: '24px', maxHeight: '24px', flexShrink: 0, marginTop: 'auto' }}>
+                            <div className="flex items-center justify-end text-[9px] text-theme-text-muted min-w-0 flex-shrink-0" style={{ height: '24px', minHeight: '24px', maxHeight: '24px', flexShrink: 0, marginTop: 'auto' }}>
                               {isAdmin && hasProjectAndMembers && (
                                 <button
                                   type="button"
@@ -941,7 +941,7 @@ export default function SchedulePage() {
                                   className={`w-6 h-6 rounded-full flex items-center justify-center text-xs transition-all hover:scale-110 flex-shrink-0 ${
                                     locked
                                       ? "bg-accent/20 text-accent border border-accent/50 hover:bg-accent/30"
-                                      : "bg-slate-800/60 text-slate-400 border border-slate-600 hover:bg-slate-700 hover:text-slate-200"
+                                      : "bg-theme-bg-elevated/60 text-theme-text-muted border border-theme-border hover:bg-theme-bg-elevated-hover hover:text-theme-text"
                                   }`}
                                   title={locked ? "ロック解除" : "この日を確定"}
                                   style={{ flexShrink: 0 }}
@@ -960,19 +960,19 @@ export default function SchedulePage() {
                 )}
               </tbody>
               <tfoot>
-                <tr className="sticky bottom-0 z-20 bg-theme-schedule-footer border-t-2 border-slate-600 shadow-[0_-1px_0_0_rgba(51,65,85,1)]">
-                  <td className="sticky left-0 z-30 border-r border-slate-700 px-2 py-2 text-left text-[11px] font-semibold bg-theme-schedule-footer">
+                <tr className="sticky bottom-0 z-20 bg-theme-schedule-footer border-t-2 border-theme-border text-theme-text shadow-[0_-1px_0_0_var(--color-border)]">
+                  <td className="sticky left-0 z-30 border-r border-theme-border px-2 py-2 text-left text-[11px] font-semibold bg-theme-schedule-footer text-theme-text">
                     1日の稼働数
                   </td>
                   {dailyWorkload.map(({ iso, count }) => (
                     <td
                       key={iso}
-                      className="sticky bottom-0 z-20 border-l border-slate-700 px-1 py-2 text-center text-[11px] font-semibold bg-theme-schedule-footer"
+                      className="sticky bottom-0 z-20 border-l border-theme-border px-1 py-2 text-center text-[11px] font-semibold bg-theme-schedule-footer text-theme-text"
                     >
                       {count > 0 ? (
                         <span className="text-accent">{count}人</span>
                       ) : (
-                        <span className="text-slate-500">0人</span>
+                        <span className="text-theme-text-muted">0人</span>
                       )}
                     </td>
                   ))}
@@ -986,52 +986,52 @@ export default function SchedulePage() {
       {/* 案件詳細モーダル */}
       {showProjectModal && selectedProject && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowProjectModal(false)}>
-          <div className="w-[500px] rounded-xl bg-slate-900 border border-slate-700 shadow-lg p-6 text-sm" onClick={(e) => e.stopPropagation()}>
+          <div className="w-[500px] rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg p-6 text-sm" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">案件詳細</h3>
+              <h3 className="text-lg font-semibold text-theme-text">案件詳細</h3>
               <button
                 type="button"
                 onClick={() => setShowProjectModal(false)}
-                className="text-slate-400 hover:text-slate-100 text-xl"
+                className="text-theme-text-muted hover:text-theme-text text-xl leading-none"
               >
                 ×
               </button>
             </div>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-slate-400 block mb-1">現場名</label>
+                <label className="text-xs text-theme-text-muted block mb-1">現場名</label>
                 <div className="text-sm font-semibold text-accent">{selectedProject.siteName}</div>
               </div>
               {selectedProject.title && selectedProject.title !== selectedProject.siteName && (
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">タイトル</label>
+                  <label className="text-xs text-theme-text-muted block mb-1">タイトル</label>
                   <div className="text-sm">{selectedProject.title}</div>
                 </div>
               )}
               <div>
-                <label className="text-xs text-slate-400 block mb-1">取引先会社名</label>
+                <label className="text-xs text-theme-text-muted block mb-1">取引先会社名</label>
                 <div className="text-sm">{selectedProject.customerName}</div>
               </div>
               <div>
-                <label className="text-xs text-slate-400 block mb-1">契約形態</label>
+                <label className="text-xs text-theme-text-muted block mb-1">契約形態</label>
                 <div className="text-sm">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded bg-slate-800">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded bg-theme-bg-elevated">
                     {selectedProject.contractType}
                   </span>
                 </div>
               </div>
               {selectedProject.contractAmount && (
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">請負金額</label>
+                  <label className="text-xs text-theme-text-muted block mb-1">請負金額</label>
                   <div className="text-sm">¥{selectedProject.contractAmount.toLocaleString()}</div>
                 </div>
               )}
               <div>
-                <label className="text-xs text-slate-400 block mb-1">現場住所</label>
+                <label className="text-xs text-theme-text-muted block mb-1">現場住所</label>
                 <div className="text-sm">{selectedProject.siteAddress}</div>
               </div>
               <div>
-                <label className="text-xs text-slate-400 block mb-1">工期</label>
+                <label className="text-xs text-theme-text-muted block mb-1">工期</label>
                 <div className="text-sm">
                   {format(new Date(selectedProject.startDate), "yyyy年MM月dd日", { locale: ja })} 〜 {format(new Date(selectedProject.endDate), "yyyy年MM月dd日", { locale: ja })}
                 </div>
@@ -1041,7 +1041,7 @@ export default function SchedulePage() {
               <button
                 type="button"
                 onClick={() => setShowProjectModal(false)}
-                className="px-4 py-2 rounded-md bg-slate-800 border border-slate-700 text-xs hover:bg-slate-700"
+                className="px-4 py-2 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover"
               >
                 閉じる
               </button>
@@ -1052,11 +1052,11 @@ export default function SchedulePage() {
 
       {selection && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="w-[420px] rounded-xl bg-slate-900 border border-slate-700 shadow-lg p-4 text-xs">
+          <div className="w-[420px] rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg p-4 text-xs">
             <div className="flex items-center justify-between mb-3">
               <div>
                 <div className="text-sm font-semibold">人員選択</div>
-                <div className="text-[11px] text-slate-400 mt-0.5">
+                <div className="text-[11px] text-theme-text-muted mt-0.5">
                   {selection.date} /{" "}
                   {workLines.find((l) => l.id === selection.workLineId)?.name}
                 </div>
@@ -1064,14 +1064,14 @@ export default function SchedulePage() {
               <button
                 type="button"
                 onClick={() => setSelection(null)}
-                className="text-slate-400 hover:text-slate-100 text-sm"
+                className="text-theme-text-muted hover:text-theme-text text-sm"
               >
                 ×
               </button>
             </div>
             <div className="space-y-3">
               <div>
-                <div className="mb-1 text-[11px] text-slate-300">
+                <div className="mb-1 text-[11px] text-theme-text-muted-strong">
                   登録済みメンバー（複数選択可）
                 </div>
                 <div className="flex flex-wrap gap-1">
@@ -1083,7 +1083,7 @@ export default function SchedulePage() {
                       className={`px-2 py-1 rounded-full border text-[11px] ${
                         selectedMemberIds.includes(m.id)
                           ? "bg-accent border-accent text-white"
-                          : "bg-slate-900 border-slate-700 text-slate-200"
+                          : "bg-theme-bg-input border-theme-border text-theme-text"
                       }`}
                     >
                       {m.name}
@@ -1092,7 +1092,7 @@ export default function SchedulePage() {
                 </div>
               </div>
               <div>
-                <div className="mb-1 text-[11px] text-slate-300">
+                <div className="mb-1 text-[11px] text-theme-text-muted-strong">
                   確定休日（曜日）
                 </div>
                 <div className="flex gap-1">
@@ -1103,8 +1103,8 @@ export default function SchedulePage() {
                       onClick={() => toggleSelectionHolidayWeekday(i)}
                       className={`w-7 h-7 rounded-full text-[11px] border ${
                         selectionHolidayWeekdays.includes(i)
-                          ? "bg-slate-100 text-slate-900 border-slate-100"
-                          : "bg-slate-900 text-slate-100 border-slate-700"
+                          ? "bg-theme-card text-theme-text border-theme-border"
+                          : "bg-theme-bg-input text-theme-text border-theme-border"
                       }`}
                     >
                       {label}
@@ -1116,7 +1116,7 @@ export default function SchedulePage() {
                 <button
                   type="button"
                   onClick={() => setSelection(null)}
-                  className="px-3 py-1 rounded-md border border-slate-600 text-[11px]"
+                  className="px-3 py-1 rounded-md border border-theme-border text-[11px]"
                 >
                   キャンセル
                 </button>
@@ -1135,27 +1135,27 @@ export default function SchedulePage() {
 
       {showBulkAssignModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="w-[500px] rounded-xl bg-slate-900 border border-slate-700 shadow-lg p-4 text-xs max-h-[90vh] overflow-y-auto">
+          <div className="w-[500px] rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg p-4 text-xs max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <div className="text-sm font-semibold">期間まとめて配置</div>
-                <div className="text-[11px] text-slate-400 mt-0.5">
+                <div className="text-[11px] text-theme-text-muted mt-0.5">
                   作業班、期間、メンバー、休日を選択して一括で配置
                 </div>
               </div>
               <button
                 type="button"
                 onClick={closeBulkAssignModal}
-                className="text-slate-400 hover:text-slate-100 text-sm"
+                className="text-theme-text-muted hover:text-theme-text text-sm"
               >
                 ×
               </button>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block mb-1 text-[11px] text-slate-300">作業班</label>
+                <label className="block mb-1 text-[11px] text-theme-text-muted-strong">作業班</label>
                 <select
-                  className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-[11px]"
+                  className="w-full rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-3 py-2 text-[11px]"
                   value={modalWorkLineId}
                   onChange={(e) => setModalWorkLineId(e.target.value)}
                 >
@@ -1168,26 +1168,26 @@ export default function SchedulePage() {
                 </select>
               </div>
               <div>
-                <label className="block mb-1 text-[11px] text-slate-300">期間</label>
+                <label className="block mb-1 text-[11px] text-theme-text-muted-strong">期間</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="date"
-                    className="flex-1 rounded-md bg-slate-800 border border-slate-700 px-3 py-2"
+                    className="flex-1 rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-3 py-2"
                     value={modalRangeStart}
                     onChange={(e) => setModalRangeStart(e.target.value)}
                   />
-                  <span className="text-slate-400">〜</span>
+                  <span className="text-theme-text-muted">〜</span>
                   <input
                     type="date"
-                    className="flex-1 rounded-md bg-slate-800 border border-slate-700 px-3 py-2"
+                    className="flex-1 rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-3 py-2"
                     value={modalRangeEnd}
                     onChange={(e) => setModalRangeEnd(e.target.value)}
                   />
                 </div>
               </div>
               <div>
-                <label className="block mb-1 text-[11px] text-slate-300">対象メンバー（複数選択可）</label>
-                <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto p-2 bg-slate-800/50 rounded-md">
+                <label className="block mb-1 text-[11px] text-theme-text-muted-strong">対象メンバー（複数選択可）</label>
+                <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto p-2 bg-theme-bg-elevated/50 rounded-md">
                   {members.map((m) => (
                     <button
                       key={m.id}
@@ -1196,7 +1196,7 @@ export default function SchedulePage() {
                       className={`px-2 py-1 rounded-full border text-[11px] ${
                         modalMemberIds.includes(m.id)
                           ? "bg-accent border-accent text-white"
-                          : "bg-slate-900 border-slate-700 text-slate-200"
+                          : "bg-theme-bg-input border-theme-border text-theme-text"
                       }`}
                     >
                       {m.name}
@@ -1205,7 +1205,7 @@ export default function SchedulePage() {
                 </div>
               </div>
               <div>
-                <label className="block mb-1 text-[11px] text-slate-300">確定休日（曜日）</label>
+                <label className="block mb-1 text-[11px] text-theme-text-muted-strong">確定休日（曜日）</label>
                 <div className="flex gap-1">
                   {["日", "月", "火", "水", "木", "金", "土"].map((label, i) => (
                     <button
@@ -1214,8 +1214,8 @@ export default function SchedulePage() {
                       onClick={() => toggleModalHolidayWeekday(i)}
                       className={`w-8 h-8 rounded-full text-[11px] border ${
                         modalHolidayWeekdays.includes(i)
-                          ? "bg-slate-100 text-slate-900 border-slate-100"
-                          : "bg-slate-900 text-slate-100 border-slate-700"
+                          ? "bg-theme-card text-theme-text border-theme-border"
+                          : "bg-theme-bg-input text-theme-text border-theme-border"
                       }`}
                     >
                       {label}
@@ -1223,11 +1223,11 @@ export default function SchedulePage() {
                   ))}
                 </div>
               </div>
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-700">
+              <div className="flex justify-end gap-2 pt-2 border-t border-theme-border">
                 <button
                   type="button"
                   onClick={closeBulkAssignModal}
-                  className="px-4 py-2 rounded-md border border-slate-600 text-[11px] hover:bg-slate-800"
+                  className="px-4 py-2 rounded-md border border-theme-border text-theme-text text-[11px] hover:bg-theme-bg-elevated"
                 >
                   キャンセル
                 </button>

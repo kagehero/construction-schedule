@@ -181,22 +181,22 @@ export default function MembersPage() {
   return (
     <AuthGuard requireAdmin={true}>
     <div className="h-screen flex flex-col">
-      <header className="px-6 py-3 border-b border-slate-800 flex items-center justify-between">
+      <header className="px-6 py-3 border-b border-theme-border flex items-center justify-between">
         <div className="flex items-baseline gap-4">
-          <h1 className="text-lg font-semibold">メンバー管理</h1>
-          <span className="text-xs text-slate-400">
+          <h1 className="text-lg font-semibold text-theme-text">メンバー管理</h1>
+          <span className="text-xs text-theme-text-muted">
             作業メンバーの追加・編集・削除
           </span>
         </div>
           <div className="flex items-center gap-2 text-[11px]">
             {profile && (
               <>
-                <span className="px-2 py-0.5 rounded-full border border-slate-600 text-slate-200">
+                <span className="px-2 py-0.5 rounded-full border border-theme-border text-theme-text">
                   {profile.email}
                 </span>
                 <button
                   onClick={signOut}
-                  className="px-2 py-0.5 rounded-full border border-slate-600 text-slate-200 hover:bg-slate-800 text-[10px]"
+                  className="px-2 py-0.5 rounded-full border border-theme-border text-theme-text hover:bg-slate-800 text-[10px]"
                 >
                   ログアウト
                 </button>
@@ -210,7 +210,7 @@ export default function MembersPage() {
             <div>
               <label className="block mb-1">メンバー名</label>
               <input
-                className="w-full rounded-md bg-slate-900 border border-slate-700 px-3 py-2"
+                className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
                 value={form.name}
                 onChange={(e) => handleChange("name", e.target.value)}
                 placeholder="例: 寺道雅気"
@@ -230,7 +230,7 @@ export default function MembersPage() {
                   type="button"
                   onClick={handleCancelEdit}
                   disabled={isSubmitting}
-                  className="inline-flex items-center px-4 py-2 rounded-md bg-slate-800 border border-slate-700 text-white text-sm font-medium hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex items-center px-4 py-2 rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text text-sm font-medium hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   キャンセル
                 </button>
@@ -259,13 +259,13 @@ export default function MembersPage() {
               </div>
             )}
             {isLoading ? (
-              <p className="text-slate-500 text-xs">読み込み中...</p>
+              <p className="text-theme-text-muted text-xs">読み込み中...</p>
             ) : (
               <>
             {members.map((m) => (
               <div
                 key={m.id}
-                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
+                className="rounded-lg border border-theme-border bg-theme-bg-input text-theme-text px-3 py-2"
               >
                 <div className="flex items-center justify-between">
                   <div className="font-semibold">{m.name}</div>
@@ -273,7 +273,7 @@ export default function MembersPage() {
                       <button
                         type="button"
                         onClick={() => handleEdit(m)}
-                        className="px-2 py-1 text-[10px] rounded border border-slate-600 bg-slate-800 hover:bg-slate-700 text-slate-300"
+                        className="px-2 py-1 text-[10px] rounded border border-theme-border bg-slate-800 hover:bg-theme-bg-elevated-hover text-theme-text-muted-strong"
                         title="編集"
                       >
                         編集
@@ -291,7 +291,7 @@ export default function MembersPage() {
                 </div>
             ))}
             {members.length === 0 && (
-              <p className="text-slate-500 text-xs">
+              <p className="text-theme-text-muted text-xs">
                 まだメンバーが登録されていません。
               </p>
                 )}
@@ -304,10 +304,10 @@ export default function MembersPage() {
       {/* Delete Confirmation Modal */}
       {deletingMemberId && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="w-[400px] rounded-xl bg-slate-900 border border-slate-700 shadow-lg p-4">
+          <div className="w-[400px] rounded-xl bg-theme-bg-input border border-theme-border shadow-lg p-4">
             <div className="mb-4">
-              <h3 className="text-sm font-semibold mb-2">メンバーの削除</h3>
-              <p className="text-xs text-slate-400">
+              <h3 className="text-sm font-semibold mb-2 text-theme-text">メンバーの削除</h3>
+              <p className="text-xs text-theme-text-muted">
                 このメンバーを削除してもよろしいですか？この操作は取り消せません。
                 <br />
                 <span className="text-red-400 mt-2 block">
@@ -320,7 +320,7 @@ export default function MembersPage() {
                 type="button"
                 onClick={() => setDeletingMemberId(null)}
                 disabled={isDeleting}
-                className="px-4 py-2 rounded-md border border-slate-600 text-xs hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 rounded-md border border-theme-border text-theme-text text-xs hover:bg-theme-bg-elevated disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 キャンセル
               </button>

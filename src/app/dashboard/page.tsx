@@ -31,9 +31,9 @@ export default function DashboardPage() {
   return (
     <AuthGuard>
       <div className="h-screen flex flex-col">
-        <header className="px-6 py-3 border-b border-slate-800">
-          <h1 className="text-lg font-semibold">ダッシュボード</h1>
-          <p className="text-xs text-slate-400 mt-1">
+        <header className="px-6 py-3 border-b border-theme-border">
+          <h1 className="text-lg font-semibold text-theme-text">ダッシュボード</h1>
+          <p className="text-xs text-theme-text-muted mt-1">
             閲覧者用ダッシュボード
           </p>
         </header>
@@ -43,40 +43,40 @@ export default function DashboardPage() {
             <Card title="案件一覧">
               <div className="space-y-2 text-xs max-h-[calc(100vh-200px)] overflow-auto pr-1">
                 {isLoading ? (
-                  <p className="text-slate-500 text-xs">読み込み中...</p>
+                  <p className="text-theme-text-muted text-xs">読み込み中...</p>
                 ) : (
                   <>
                     {projects.map((p) => (
                       <div
                         key={p.id}
-                        className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
+                        className="rounded-lg border border-theme-border bg-theme-bg-elevated px-3 py-2 text-theme-text"
                       >
                         <div className="flex items-center justify-between">
                           <div className="font-semibold">{p.siteName}</div>
-                          <div className="text-[10px] text-slate-400">
+                          <div className="text-[10px] text-theme-text-muted">
                             {p.startDate} ~ {p.endDate}
                           </div>
                         </div>
                         <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                          <span className="text-[11px] text-slate-300">
+                          <span className="text-[11px] text-theme-text-muted-strong">
                             {p.customerName}
                           </span>
-                          <span className="text-[11px] inline-flex items-center px-1.5 py-0.5 rounded bg-slate-800">
+                          <span className="text-[11px] inline-flex items-center px-1.5 py-0.5 rounded bg-theme-bg-input text-theme-text">
                             {p.contractType}
                           </span>
                           {p.contractAmount && (
-                            <span className="text-[11px] text-slate-400">
+                            <span className="text-[11px] text-theme-text-muted">
                               ¥{p.contractAmount.toLocaleString()}
                             </span>
                           )}
                         </div>
-                        <div className="mt-1 text-[11px] text-slate-400 truncate">
+                        <div className="mt-1 text-[11px] text-theme-text-muted truncate">
                           {p.siteAddress}
                         </div>
                       </div>
                     ))}
                     {projects.length === 0 && (
-                      <p className="text-slate-500 text-xs">
+                      <p className="text-theme-text-muted text-xs">
                         まだ案件が登録されていません。
                       </p>
                     )}

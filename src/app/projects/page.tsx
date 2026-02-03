@@ -351,22 +351,22 @@ export default function ProjectsPage() {
   return (
     <AuthGuard requireAdmin={true}>
     <div className="h-screen flex flex-col">
-      <header className="px-6 py-3 border-b border-slate-800 flex items-center justify-between">
+      <header className="px-6 py-3 border-b border-theme-border flex items-center justify-between">
         <div className="flex items-baseline gap-4">
-          <h1 className="text-lg font-semibold">案件立ち上げ</h1>
-          <span className="text-xs text-slate-400">
+          <h1 className="text-lg font-semibold text-theme-text">案件立ち上げ</h1>
+          <span className="text-xs text-theme-text-muted">
             取引先・現場・契約情報の基本登録
           </span>
         </div>
           <div className="flex items-center gap-2 text-[11px]">
             {profile && (
               <>
-                <span className="px-2 py-0.5 rounded-full border border-slate-600 text-slate-200">
+                <span className="px-2 py-0.5 rounded-full border border-theme-border text-theme-text">
                   {profile.email}
                 </span>
                 <button
                   onClick={signOut}
-                  className="px-2 py-0.5 rounded-full border border-slate-600 text-slate-200 hover:bg-slate-800 text-[10px]"
+                  className="px-2 py-0.5 rounded-full border border-theme-border text-theme-text hover:bg-theme-bg-elevated text-[10px]"
                 >
                   ログアウト
                 </button>
@@ -380,7 +380,7 @@ export default function ProjectsPage() {
             <div>
               <label className="block mb-1">取引先会社名</label>
               <input
-                className="w-full rounded-md bg-slate-900 border border-slate-700 px-3 py-2"
+                className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
                 value={form.customerName}
                 onChange={(e) => handleChange("customerName", e.target.value)}
               />
@@ -393,7 +393,7 @@ export default function ProjectsPage() {
             <div>
               <label className="block mb-1">現場名</label>
               <input
-                className="w-full rounded-md bg-slate-900 border border-slate-700 px-3 py-2"
+                className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
                 value={form.siteName}
                 onChange={(e) => handleChange("siteName", e.target.value)}
               />
@@ -406,7 +406,7 @@ export default function ProjectsPage() {
             <div>
               <label className="block mb-1">契約形態</label>
               <select
-                className="w-full rounded-md bg-slate-900 border border-slate-700 px-3 py-2"
+                className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
                 value={form.contractType}
                 onChange={(e) =>
                   handleChange("contractType", e.target.value as ContractType)
@@ -422,7 +422,7 @@ export default function ProjectsPage() {
                 <label className="block mb-1">請負金額（管理者のみ表示想定）</label>
                 <input
                   type="number"
-                  className="w-full rounded-md bg-slate-900 border border-slate-700 px-3 py-2"
+                  className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
                   value={form.contractAmount ?? ""}
                   onChange={(e) =>
                     handleChange(
@@ -441,7 +441,7 @@ export default function ProjectsPage() {
             <div>
               <label className="block mb-1">現場住所</label>
               <input
-                className="w-full rounded-md bg-slate-900 border border-slate-700 px-3 py-2"
+                className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
                 value={form.siteAddress}
                 onChange={(e) => handleChange("siteAddress", e.target.value)}
               />
@@ -456,7 +456,7 @@ export default function ProjectsPage() {
                 <label className="block mb-1">工期開始日</label>
                 <input
                   type="date"
-                  className="w-full rounded-md bg-slate-900 border border-slate-700 px-3 py-2"
+                  className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
                   value={form.startDate}
                   onChange={(e) => handleChange("startDate", e.target.value)}
                 />
@@ -465,7 +465,7 @@ export default function ProjectsPage() {
                 <label className="block mb-1">工期終了日</label>
                 <input
                   type="date"
-                  className="w-full rounded-md bg-slate-900 border border-slate-700 px-3 py-2"
+                  className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
                   value={form.endDate}
                   onChange={(e) => handleChange("endDate", e.target.value)}
                 />
@@ -477,12 +477,12 @@ export default function ProjectsPage() {
                 <button
                   type="button"
                   onClick={addWorkGroup}
-                  className="text-xs px-2 py-1 rounded border border-slate-600 bg-slate-800 hover:bg-slate-700 text-slate-300"
+                  className="text-xs px-2 py-1 rounded border border-theme-border bg-theme-bg-elevated hover:bg-theme-bg-elevated-hover text-theme-text-muted-strong"
                 >
                   + 追加
                 </button>
               </div>
-              <p className="text-[11px] text-slate-500 mb-2">
+              <p className="text-[11px] text-theme-text-muted mb-2">
                 班ごとの色は工程表の「班」列に表示されます。管理者が自由に変更できます。
               </p>
               <div className="space-y-2">
@@ -490,14 +490,14 @@ export default function ProjectsPage() {
                   <div key={row.id ?? `new-${index}`} className="flex gap-2 items-center">
                     <input
                       type="color"
-                      className="w-9 h-9 rounded border border-slate-600 cursor-pointer bg-slate-800 p-0.5"
+                      className="w-9 h-9 rounded border border-theme-border cursor-pointer bg-theme-bg-elevated p-0.5"
                       value={row.color || WORK_GROUP_DEFAULT_COLORS[0]}
                       onChange={(e) => updateWorkGroupColor(index, e.target.value)}
                       title="班の色"
                     />
                     <input
                       type="text"
-                      className="flex-1 rounded-md bg-slate-900 border border-slate-700 px-3 py-2"
+                      className="flex-1 rounded-md bg-theme-bg-input border border-theme-border px-3 py-2"
                       value={row.name}
                       onChange={(e) => updateWorkGroupName(index, e.target.value)}
                       placeholder="作業班名を入力"
@@ -505,14 +505,14 @@ export default function ProjectsPage() {
                     <button
                       type="button"
                       onClick={() => removeWorkGroup(index)}
-                      className="px-3 py-2 rounded-md border border-red-600 bg-slate-800 hover:bg-red-900/20 text-red-400 text-xs"
+                      className="px-3 py-2 rounded-md border border-red-600 bg-theme-bg-elevated hover:bg-red-900/20 text-red-400 text-xs"
                     >
                       削除
                     </button>
                   </div>
                 ))}
                 {workGroups.length === 0 && (
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-theme-text-muted">
                     作業班を追加するには「+ 追加」ボタンをクリックしてください
                   </p>
                 )}
@@ -527,7 +527,7 @@ export default function ProjectsPage() {
                   type="button"
                   onClick={handleCancelEdit}
                   disabled={isSubmitting}
-                  className="inline-flex items-center px-4 py-2 rounded-md bg-slate-800 border border-slate-700 text-white text-sm font-medium hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex items-center px-4 py-2 rounded-md bg-theme-bg-elevated border border-theme-border text-white text-sm font-medium hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   キャンセル
                 </button>
@@ -556,25 +556,25 @@ export default function ProjectsPage() {
               </div>
             )}
             {isLoading ? (
-              <p className="text-slate-500 text-xs">読み込み中...</p>
+              <p className="text-theme-text-muted text-xs">読み込み中...</p>
             ) : (
               <>
             {projects.map((p) => (
               <div
                 key={p.id}
-                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
+                className="rounded-lg border border-theme-border bg-theme-bg-input text-theme-text px-3 py-2"
               >
                 <div className="flex items-center justify-between">
                   <div className="font-semibold">{p.siteName}</div>
                   <div className="flex items-center gap-2">
-                  <div className="text-[10px] text-slate-400">
+                  <div className="text-[10px] text-theme-text-muted">
                     {p.startDate} ~ {p.endDate}
                     </div>
                     <div className="flex gap-1">
                       <button
                         type="button"
                         onClick={() => handleEdit(p)}
-                        className="px-2 py-1 text-[10px] rounded border border-slate-600 bg-slate-800 hover:bg-slate-700 text-slate-300"
+                        className="px-2 py-1 text-[10px] rounded border border-theme-border bg-theme-bg-elevated hover:bg-theme-bg-elevated-hover text-theme-text-muted-strong"
                         title="編集"
                       >
                         編集
@@ -582,7 +582,7 @@ export default function ProjectsPage() {
                       <button
                         type="button"
                         onClick={() => handleDeleteClick(p.id)}
-                        className="px-2 py-1 text-[10px] rounded border border-red-600 bg-slate-800 hover:bg-red-900/20 text-red-400"
+                        className="px-2 py-1 text-[10px] rounded border border-red-600 bg-theme-bg-elevated hover:bg-red-900/20 text-red-400"
                         title="削除"
                       >
                         削除
@@ -591,25 +591,25 @@ export default function ProjectsPage() {
                   </div>
                 </div>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                  <span className="text-[11px] text-slate-300">
+                  <span className="text-[11px] text-theme-text-muted-strong">
                     {p.customerName}
                   </span>
-                  <span className="text-[11px] inline-flex items-center px-1.5 py-0.5 rounded bg-slate-800">
+                  <span className="text-[11px] inline-flex items-center px-1.5 py-0.5 rounded bg-theme-bg-elevated">
                     {p.contractType}
                   </span>
                   {p.contractAmount && (
-                    <span className="text-[11px] text-slate-400">
+                    <span className="text-[11px] text-theme-text-muted">
                       ¥{p.contractAmount.toLocaleString()}
                     </span>
                   )}
                 </div>
-                <div className="mt-1 text-[11px] text-slate-400 truncate">
+                <div className="mt-1 text-[11px] text-theme-text-muted truncate">
                   {p.siteAddress}
                 </div>
               </div>
             ))}
             {projects.length === 0 && (
-              <p className="text-slate-500 text-xs">
+              <p className="text-theme-text-muted text-xs">
                 まだ案件が登録されていません。
               </p>
                 )}
@@ -622,10 +622,10 @@ export default function ProjectsPage() {
       {/* Delete Confirmation Modal */}
       {deletingProjectId && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="w-[400px] rounded-xl bg-slate-900 border border-slate-700 shadow-lg p-4">
+          <div className="w-[400px] rounded-xl bg-theme-bg-input border border-theme-border shadow-lg p-4">
             <div className="mb-4">
-              <h3 className="text-sm font-semibold mb-2">案件の削除</h3>
-              <p className="text-xs text-slate-400">
+              <h3 className="text-sm font-semibold mb-2 text-theme-text">案件の削除</h3>
+              <p className="text-xs text-theme-text-muted">
                 この案件を削除してもよろしいですか？この操作は取り消せません。
               </p>
             </div>
@@ -634,7 +634,7 @@ export default function ProjectsPage() {
                 type="button"
                 onClick={() => setDeletingProjectId(null)}
                 disabled={isDeleting}
-                className="px-4 py-2 rounded-md border border-slate-600 text-xs hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 rounded-md border border-theme-border text-theme-text text-xs hover:bg-theme-bg-elevated disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 キャンセル
               </button>

@@ -102,11 +102,11 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="h-screen flex items-center justify-center bg-slate-950">
+    <div className="h-screen flex items-center justify-center bg-theme-body text-theme-text">
       <div className="w-full max-w-md">
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 shadow-lg">
+        <div className="bg-theme-card border border-theme-border rounded-xl p-8 shadow-lg">
           {/* Tabs */}
-          <div className="flex gap-2 mb-6 border-b border-slate-800">
+          <div className="flex gap-2 mb-6 border-b border-theme-border">
             <button
               type="button"
               onClick={() => {
@@ -116,8 +116,8 @@ export default function LoginPage() {
               }}
               className={`flex-1 pb-2 text-sm font-medium transition-colors ${
                 activeTab === 'login'
-                  ? 'text-accent border-b-2 border-accent'
-                  : 'text-slate-400 hover:text-slate-300'
+                  ? 'text-theme-accent border-b-2 border-theme-accent'
+                  : 'text-theme-text-muted hover:text-theme-text-muted-strong'
               }`}
             >
               ログイン
@@ -131,18 +131,18 @@ export default function LoginPage() {
               }}
               className={`flex-1 pb-2 text-sm font-medium transition-colors ${
                 activeTab === 'signup'
-                  ? 'text-accent border-b-2 border-accent'
-                  : 'text-slate-400 hover:text-slate-300'
+                  ? 'text-theme-accent border-b-2 border-theme-accent'
+                  : 'text-theme-text-muted hover:text-theme-text-muted-strong'
               }`}
             >
               新規登録
             </button>
           </div>
 
-          <h1 className="text-2xl font-semibold mb-2">
+          <h1 className="text-2xl font-semibold mb-2 text-theme-text">
             {activeTab === 'login' ? 'ログイン' : '新規登録'}
           </h1>
-          <p className="text-sm text-slate-400 mb-6">
+          <p className="text-sm text-theme-text-muted mb-6">
             {activeTab === 'login'
               ? '工程管理システムにログインしてください'
               : '新しいアカウントを作成してください'}
@@ -188,7 +188,7 @@ export default function LoginPage() {
           {activeTab === 'login' ? (
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="block text-sm mb-1 text-slate-300">
+                <label className="block text-sm mb-1 text-theme-text-muted-strong">
                   メールアドレス
                 </label>
                 <input
@@ -196,13 +196,13 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                  className="w-full rounded-md bg-theme-bg-elevated border border-theme-border px-3 py-2 text-sm text-theme-text focus:outline-none focus:ring-2 focus:ring-theme-accent"
                   placeholder="メールアドレスを入力"
                 />
               </div>
 
               <div>
-                <label className="block text-sm mb-1 text-slate-300">
+                <label className="block text-sm mb-1 text-theme-text-muted-strong">
                   パスワード
                 </label>
                 <input
@@ -210,7 +210,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                  className="w-full rounded-md bg-theme-bg-elevated border border-theme-border px-3 py-2 text-sm text-theme-text focus:outline-none focus:ring-2 focus:ring-theme-accent"
                   placeholder="パスワードを入力"
                 />
               </div>
@@ -226,7 +226,7 @@ export default function LoginPage() {
           ) : (
             <form onSubmit={handleSignUp} className="space-y-4">
               <div>
-                <label className="block text-sm mb-1 text-slate-300">
+                <label className="block text-sm mb-1 text-theme-text-muted-strong">
                   メールアドレス
                 </label>
                 <input
@@ -234,13 +234,13 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                  className="w-full rounded-md bg-theme-bg-elevated border border-theme-border px-3 py-2 text-sm text-theme-text focus:outline-none focus:ring-2 focus:ring-theme-accent"
                   placeholder="your@email.com"
                 />
               </div>
 
               <div>
-                <label className="block text-sm mb-1 text-slate-300">
+                <label className="block text-sm mb-1 text-theme-text-muted-strong">
                   パスワード
                 </label>
                 <input
@@ -249,16 +249,16 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   minLength={6}
-                  className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                  className="w-full rounded-md bg-theme-bg-elevated border border-theme-border px-3 py-2 text-sm text-theme-text focus:outline-none focus:ring-2 focus:ring-theme-accent"
                   placeholder="6文字以上"
                 />
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-theme-text-muted">
                   パスワードは6文字以上である必要があります
                 </p>
               </div>
 
               <div>
-                <label className="block text-sm mb-1 text-slate-300">
+                <label className="block text-sm mb-1 text-theme-text-muted-strong">
                   パスワード（確認）
                 </label>
                 <input
@@ -267,7 +267,7 @@ export default function LoginPage() {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
                   minLength={6}
-                  className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                  className="w-full rounded-md bg-theme-bg-elevated border border-theme-border px-3 py-2 text-sm text-theme-text focus:outline-none focus:ring-2 focus:ring-theme-accent"
                   placeholder="パスワードを再入力"
                 />
               </div>

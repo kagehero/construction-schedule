@@ -12,13 +12,13 @@ export function Card({ title, actions, children, className }: CardProps) {
   return (
     <section
       className={clsx(
-        "rounded-xl bg-theme-card border border-slate-800 shadow-sm",
+        "rounded-xl bg-theme-card border border-theme-border text-theme-text shadow-sm",
         className
       )}
     >
       {(title || actions) && (
-        <header className="flex items-center justify-between px-4 py-2 border-b border-slate-800">
-          {title && <h2 className="text-sm font-semibold">{title}</h2>}
+        <header className="flex items-center justify-between px-4 py-2 border-b border-theme-border">
+          {title && <h2 className="text-sm font-semibold text-theme-text">{title}</h2>}
           {actions && <div className="flex items-center gap-2">{actions}</div>}
         </header>
       )}
