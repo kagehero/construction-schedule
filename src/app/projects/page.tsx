@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { ContractType, Project } from "@/domain/projects/types";
 import { Card } from "@/components/ui/card";
 import { getProjects, createProject, updateProject, deleteProject } from "@/lib/supabase/projects";
-import { getWorkLines, createWorkLine, deleteWorkLine } from "@/lib/supabase/schedule";
+import { getWorkLines, createWorkLine, updateWorkLine, deleteWorkLine } from "@/lib/supabase/schedule";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthGuard } from "@/components/AuthGuard";
 import toast from "react-hot-toast";
@@ -30,6 +30,11 @@ const projectSchema = z.object({
 
 type FormState = z.infer<typeof projectSchema>;
 
+/** 作業班の1行（新規は id なし、編集時は既存 work_line の id あり） */
+type WorkGroupRow = { id?: string; name: string; color: string };
+
+const WORK_GROUP_DEFAULT_COLORS = ["#3b82f6", "#f97316", "#22c55e", "#eab308", "#a855f7", "#ef4444", "#06b6d4"];
+
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [form, setForm] = useState<FormState>({
@@ -48,8 +53,7 @@ export default function ProjectsPage() {
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [workGroupNames, setWorkGroupNames] = useState<string[]>([]);
-  const [existingWorkLines, setExistingWorkLines] = useState<WorkLine[]>([]);
+  const [workGroups, setWorkGroups] = useState<WorkGroupRow[]>([]);
   const { isAdmin, signOut, profile } = useAuth();
 
   // Load projects from database on mount
@@ -112,30 +116,24 @@ export default function ProjectsPage() {
 
       const createdProject = await createProject(newProject);
       
-      // Create work lines for selected work groups
-      if (workGroupNames.length > 0) {
-        const colors = ["#3b82f6", "#f97316", "#22c55e", "#eab308", "#a855f7", "#ef4444", "#06b6d4"];
-        for (let i = 0; i < workGroupNames.length; i++) {
-          const name = workGroupNames[i].trim();
-          if (name) {
-            try {
-              await createWorkLine({
-                projectId: createdProject.id,
-                name: name,
-                color: colors[i % colors.length]
-              });
-            } catch (error) {
-              console.error(`Failed to create work line "${name}":`, error);
-              toast.error(`ワークグループ「${name}」の作成に失敗しました。`);
-            }
-          }
+      for (const row of workGroups) {
+        const name = row.name.trim();
+        if (!name) continue;
+        try {
+          await createWorkLine({
+            projectId: createdProject.id,
+            name,
+            color: row.color || WORK_GROUP_DEFAULT_COLORS[0]
+          });
+        } catch (error) {
+          console.error(`Failed to create work line "${name}":`, error);
+          toast.error(`ワークグループ「${name}」の作成に失敗しました。`);
         }
       }
       
       setProjects((prev) => [createdProject, ...prev]);
       toast.success("案件が登録されました。");
       
-      // Reset form
       setForm({
         title: "",
         customerName: "",
@@ -146,7 +144,7 @@ export default function ProjectsPage() {
         startDate: "",
         endDate: ""
       });
-      setWorkGroupNames([]);
+      setWorkGroups([]);
     } catch (error) {
       console.error("Failed to create project:", error);
       setErrors({ 
@@ -171,18 +169,20 @@ export default function ProjectsPage() {
       endDate: project.endDate
     });
     
-    // Load existing work lines for this project
     try {
       const workLines = await getWorkLines(project.id);
-      setExistingWorkLines(workLines);
-      setWorkGroupNames(workLines.map(wl => wl.name));
+      setWorkGroups(
+        workLines.map((wl, i) => ({
+          id: wl.id,
+          name: wl.name,
+          color: wl.color || WORK_GROUP_DEFAULT_COLORS[i % WORK_GROUP_DEFAULT_COLORS.length]
+        }))
+      );
     } catch (error) {
       console.error("Failed to load work lines:", error);
-      setExistingWorkLines([]);
-      setWorkGroupNames([]);
+      setWorkGroups([]);
     }
     
-    // Scroll to form
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -218,39 +218,41 @@ export default function ProjectsPage() {
     };
 
       const updatedProject = await updateProject(editingProject.id, updateData);
-      
-      // Update work lines
-      // Get current work lines to compare
       const currentWorkLines = await getWorkLines(updatedProject.id);
-      const currentNames = currentWorkLines.map(wl => wl.name);
-      const newNames = workGroupNames.filter(name => name.trim() !== "");
-      
-      // Delete work lines that are no longer in the new list
-      for (const currentWorkLine of currentWorkLines) {
-        if (!newNames.includes(currentWorkLine.name)) {
-          try {
-            await deleteWorkLine(currentWorkLine.id);
-          } catch (error) {
-            console.error(`Failed to delete work line "${currentWorkLine.name}":`, error);
-            toast.error(`ワークグループ「${currentWorkLine.name}」の削除に失敗しました。`);
+      const keptIds = new Set(workGroups.filter((r) => r.name.trim() && r.id).map((r) => r.id!));
+
+      for (const row of workGroups) {
+        const name = row.name.trim();
+        if (!name) continue;
+        if (row.id) {
+          if (keptIds.has(row.id)) {
+            try {
+              await updateWorkLine(row.id, { name, color: row.color });
+            } catch (error) {
+              console.error(`Failed to update work line "${name}":`, error);
+              toast.error(`ワークグループ「${name}」の更新に失敗しました。`);
+            }
           }
-        }
-      }
-      
-      // Create new work lines that don't exist yet
-      const colors = ["#3b82f6", "#f97316", "#22c55e", "#eab308", "#a855f7", "#ef4444", "#06b6d4"];
-      for (let i = 0; i < newNames.length; i++) {
-        const name = newNames[i].trim();
-        if (name && !currentNames.includes(name)) {
+        } else {
           try {
             await createWorkLine({
               projectId: updatedProject.id,
-              name: name,
-              color: colors[i % colors.length]
+              name,
+              color: row.color || WORK_GROUP_DEFAULT_COLORS[0]
             });
           } catch (error) {
             console.error(`Failed to create work line "${name}":`, error);
             toast.error(`ワークグループ「${name}」の作成に失敗しました。`);
+          }
+        }
+      }
+      for (const wl of currentWorkLines) {
+        if (!keptIds.has(wl.id)) {
+          try {
+            await deleteWorkLine(wl.id);
+          } catch (error) {
+            console.error(`Failed to delete work line "${wl.name}":`, error);
+            toast.error(`ワークグループ「${wl.name}」の削除に失敗しました。`);
           }
         }
       }
@@ -260,7 +262,6 @@ export default function ProjectsPage() {
       );
       toast.success("案件が更新されました。");
       
-      // Reset form and editing state
       setEditingProject(null);
       setForm({
         title: "",
@@ -272,8 +273,7 @@ export default function ProjectsPage() {
         startDate: "",
         endDate: ""
       });
-      setWorkGroupNames([]);
-      setExistingWorkLines([]);
+      setWorkGroups([]);
     } catch (error) {
       console.error("Failed to update project:", error);
       setErrors({ 
@@ -317,28 +317,34 @@ export default function ProjectsPage() {
       startDate: "",
       endDate: ""
     });
-    setWorkGroupNames([]);
-    setExistingWorkLines([]);
+    setWorkGroups([]);
     setErrors({});
   };
 
   const addWorkGroup = () => {
-    setWorkGroupNames((prev) => [...prev, ""]);
+    setWorkGroups((prev) => [
+      ...prev,
+      { name: "", color: WORK_GROUP_DEFAULT_COLORS[prev.length % WORK_GROUP_DEFAULT_COLORS.length] }
+    ]);
   };
 
   const removeWorkGroup = (index: number) => {
-    setWorkGroupNames((prev) => prev.filter((_, i) => i !== index));
-    // If editing, also remove from existing work lines if it exists
-    if (editingProject && existingWorkLines[index]) {
-      setExistingWorkLines((prev) => prev.filter((_, i) => i !== index));
-    }
+    setWorkGroups((prev) => prev.filter((_, i) => i !== index));
   };
 
   const updateWorkGroupName = (index: number, value: string) => {
-    setWorkGroupNames((prev) => {
-      const newNames = [...prev];
-      newNames[index] = value;
-      return newNames;
+    setWorkGroups((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], name: value };
+      return next;
+    });
+  };
+
+  const updateWorkGroupColor = (index: number, color: string) => {
+    setWorkGroups((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], color };
+      return next;
     });
   };
 
@@ -467,7 +473,7 @@ export default function ProjectsPage() {
             </div>
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="block">作業班（ワークグループ）</label>
+                <label className="block">作業班（ワークグループ）・班の色</label>
                 <button
                   type="button"
                   onClick={addWorkGroup}
@@ -476,13 +482,23 @@ export default function ProjectsPage() {
                   + 追加
                 </button>
               </div>
+              <p className="text-[11px] text-slate-500 mb-2">
+                班ごとの色は工程表の「班」列に表示されます。管理者が自由に変更できます。
+              </p>
               <div className="space-y-2">
-                {workGroupNames.map((name, index) => (
-                  <div key={index} className="flex gap-2">
+                {workGroups.map((row, index) => (
+                  <div key={row.id ?? `new-${index}`} className="flex gap-2 items-center">
+                    <input
+                      type="color"
+                      className="w-9 h-9 rounded border border-slate-600 cursor-pointer bg-slate-800 p-0.5"
+                      value={row.color || WORK_GROUP_DEFAULT_COLORS[0]}
+                      onChange={(e) => updateWorkGroupColor(index, e.target.value)}
+                      title="班の色"
+                    />
                     <input
                       type="text"
                       className="flex-1 rounded-md bg-slate-900 border border-slate-700 px-3 py-2"
-                      value={name}
+                      value={row.name}
                       onChange={(e) => updateWorkGroupName(index, e.target.value)}
                       placeholder="作業班名を入力"
                     />
@@ -495,7 +511,7 @@ export default function ProjectsPage() {
                     </button>
                   </div>
                 ))}
-                {workGroupNames.length === 0 && (
+                {workGroups.length === 0 && (
                   <p className="text-xs text-slate-500">
                     作業班を追加するには「+ 追加」ボタンをクリックしてください
                   </p>

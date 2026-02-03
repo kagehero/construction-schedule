@@ -2,15 +2,38 @@
 
 import type { ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import "./globals.css";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { SupabaseStatus } from "@/components/SupabaseStatus";
 import { Toaster } from "react-hot-toast";
 
+const THEME_KEY = "app-theme";
+const THEMES = [
+  { value: "dark", label: "ダーク（スレート）" },
+  { value: "dark-blue", label: "ダークブルー" },
+  { value: "dark-green", label: "ダークグリーン" },
+  { value: "light", label: "ライト" },
+] as const;
+
 function Sidebar() {
   const { signOut, profile, isAdmin, isViewer } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const [theme, setThemeState] = useState<string>("dark");
+
+  useEffect(() => {
+    const stored = typeof window !== "undefined" ? localStorage.getItem(THEME_KEY) : null;
+    const initial = (stored && THEMES.some((t) => t.value === stored)) ? stored : "dark";
+    setThemeState(initial);
+    document.documentElement.setAttribute("data-theme", initial);
+  }, []);
+
+  const handleThemeChange = (value: string) => {
+    setThemeState(value);
+    document.documentElement.setAttribute("data-theme", value);
+    if (typeof window !== "undefined") localStorage.setItem(THEME_KEY, value);
+  };
 
   const handleSignOut = async () => {
     try {
@@ -38,9 +61,23 @@ function Sidebar() {
   const menuItems = isAdmin ? adminMenuItems : viewerMenuItems;
 
   return (
-    <aside className="w-56 bg-sidebar text-slate-100 flex flex-col">
+    <aside className="w-56 bg-theme-sidebar text-slate-100 flex flex-col">
       <div className="px-4 py-3 text-lg font-semibold border-b border-slate-800">
         工程管理
+      </div>
+      <div className="px-3 py-2 border-b border-slate-800">
+        <label className="block text-[10px] text-slate-400 mb-1">背景テーマ</label>
+        <select
+          value={theme}
+          onChange={(e) => handleThemeChange(e.target.value)}
+          className="w-full rounded bg-slate-800 border border-slate-600 px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-accent"
+        >
+          {THEMES.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
+        </select>
       </div>
       <nav className="flex-1 px-2 py-4 space-y-2 text-sm">
         {menuItems.map((item) => {
@@ -97,7 +134,7 @@ function LayoutContent({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen">
       <Sidebar />
-      <main className="flex-1 bg-slate-900 border-l border-slate-800">
+      <main className="flex-1 bg-theme-main border-l border-slate-800">
         {children}
       </main>
     </div>

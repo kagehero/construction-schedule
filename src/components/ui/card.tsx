@@ -12,7 +12,7 @@ export function Card({ title, actions, children, className }: CardProps) {
   return (
     <section
       className={clsx(
-        "rounded-xl bg-cardBg border border-slate-800 shadow-sm",
+        "rounded-xl bg-theme-card border border-slate-800 shadow-sm",
         className
       )}
     >

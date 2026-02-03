@@ -2,13 +2,60 @@
 @tailwind components;
 @tailwind utilities;
 
+/* テーマ用 CSS 変数（デフォルト: ダークスレート） */
+:root,
+[data-theme="dark"] {
+  --color-bg-body: #020617;
+  --color-bg-sidebar: #121725;
+  --color-bg-card: #1b2234;
+  --color-bg-main: #0f172a;
+  --color-bg-schedule-footer: #1e293b;
+  --color-accent: #2f80ed;
+  --color-border: #334155;
+}
+
+[data-theme="dark-blue"] {
+  --color-bg-body: #0c1929;
+  --color-bg-sidebar: #0f2744;
+  --color-bg-card: #132f4c;
+  --color-bg-main: #0a1628;
+  --color-bg-schedule-footer: #1a365d;
+  --color-accent: #3b82f6;
+  --color-border: #1e3a5f;
+}
+
+[data-theme="dark-green"] {
+  --color-bg-body: #052e16;
+  --color-bg-sidebar: #0d3d1c;
+  --color-bg-card: #14532d;
+  --color-bg-main: #022c12;
+  --color-bg-schedule-footer: #166534;
+  --color-accent: #22c55e;
+  --color-border: #166534;
+}
+
+[data-theme="light"] {
+  --color-bg-body: #f1f5f9;
+  --color-bg-sidebar: #e2e8f0;
+  --color-bg-card: #ffffff;
+  --color-bg-main: #f8fafc;
+  --color-bg-schedule-footer: #e2e8f0;
+  --color-accent: #2563eb;
+  --color-border: #cbd5e1;
+}
+
+[data-theme="light"] body {
+  color: #0f172a;
+}
+
 html,
 body {
   height: 100%;
 }
 
 body {
-  @apply bg-slate-950 text-slate-100;
+  background-color: var(--color-bg-body);
+  @apply text-slate-100;
 }
 
 * {

@@ -37,6 +37,13 @@ const getMemberShortName = (name: string): string => {
 // mockLinesは削除し、データベースから取得する
 
 const DAYS_VISIBLE_IN_VIEWPORT = 7; // 画面に表示する日数
+const ROWS_VISIBLE_IN_VIEWPORT = 4; // 1画面に表示する作業班の行数
+const ROW_HEIGHT_PX = 110; // 1行の高さ（px）
+const TABLE_HEADER_HEIGHT_PX = 48;
+const TABLE_FOOTER_HEIGHT_PX = 44;
+/** 工程表スクロール領域の高さ（ヘッダー + 4行 + フッター） */
+const SCHEDULE_SCROLL_HEIGHT_PX =
+  TABLE_HEADER_HEIGHT_PX + ROWS_VISIBLE_IN_VIEWPORT * ROW_HEIGHT_PX + TABLE_FOOTER_HEIGHT_PX;
 
 // 仮のユーザー権限（本番ではログイン情報から取得する想定）
 const CURRENT_USER_ROLE: "admin" | "viewer" = "admin";
@@ -511,6 +518,17 @@ export default function SchedulePage() {
       (a) => a.workLineId === workLineId && a.date === iso && !a.isHoliday
     );
 
+  // 日別の稼働数（表示中の作業班のみ・休日除く）
+  const dailyWorkload = useMemo(() => {
+    return days.map((d) => {
+      const total = displayedLines.reduce(
+        (sum, line) => sum + getCellAssignments(line.id, d.iso).length,
+        0
+      );
+      return { iso: d.iso, count: total };
+    });
+  }, [days, displayedLines, assignments]);
+
   return (
     <AuthGuard>
     <div className="h-screen flex flex-col">
@@ -752,9 +770,10 @@ export default function SchedulePage() {
             </span>
           </div>
           <div 
-            className="overflow-y-auto h-[calc(100vh-250px)]"
+            className="overflow-y-auto overflow-x-auto"
             style={{ 
               width: '100%',
+              height: SCHEDULE_SCROLL_HEIGHT_PX,
               scrollbarWidth: 'thin',
               scrollbarColor: '#475569 #1e293b'
             }}
@@ -767,14 +786,14 @@ export default function SchedulePage() {
                 ))}
               </colgroup>
               <thead>
-                <tr className="sticky top-0 bg-slate-900 z-10">
-                  <th className="sticky left-0 z-20 border-b border-r border-slate-700 px-2 py-1 text-left bg-slate-900">
+                <tr className="sticky top-0 z-20 bg-slate-900 shadow-[0_1px_0_0_rgba(51,65,85,1)]">
+                  <th className="sticky left-0 z-30 border-b border-r border-slate-700 px-2 py-1 text-left bg-slate-900">
                     班
                   </th>
                   {days.map((d) => (
                     <th
                       key={d.iso}
-                      className={`border-b border-l border-slate-700 px-1 py-1 text-center overflow-hidden transition-all duration-300 ease-in-out ${
+                      className={`sticky top-0 z-20 border-b border-l border-slate-700 px-1 py-1 text-center overflow-hidden transition-all duration-300 ease-in-out bg-slate-900 ${
                         slideDirection === 'left' 
                           ? 'translate-x-[-100%] opacity-0' 
                           : slideDirection === 'right' 
@@ -940,6 +959,25 @@ export default function SchedulePage() {
                   })
                 )}
               </tbody>
+              <tfoot>
+                <tr className="sticky bottom-0 z-20 bg-theme-schedule-footer border-t-2 border-slate-600 shadow-[0_-1px_0_0_rgba(51,65,85,1)]">
+                  <td className="sticky left-0 z-30 border-r border-slate-700 px-2 py-2 text-left text-[11px] font-semibold bg-theme-schedule-footer">
+                    1日の稼働数
+                  </td>
+                  {dailyWorkload.map(({ iso, count }) => (
+                    <td
+                      key={iso}
+                      className="sticky bottom-0 z-20 border-l border-slate-700 px-1 py-2 text-center text-[11px] font-semibold bg-theme-schedule-footer"
+                    >
+                      {count > 0 ? (
+                        <span className="text-accent">{count}人</span>
+                      ) : (
+                        <span className="text-slate-500">0人</span>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              </tfoot>
             </table>
           </div>
         </Card>

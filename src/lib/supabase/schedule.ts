@@ -111,6 +111,25 @@ export async function createWorkLine(workLine: Omit<WorkLine, 'id'>): Promise<Wo
   return toWorkLine(data);
 }
 
+export async function updateWorkLine(
+  id: string,
+  data: Partial<Pick<WorkLine, 'name' | 'color'>>
+): Promise<WorkLine> {
+  const updateData: Record<string, unknown> = {};
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.color !== undefined) updateData.color = data.color ?? null;
+
+  const { data: row, error } = await supabase
+    .from('work_lines')
+    .update(updateData)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return toWorkLine(row);
+}
+
 export async function deleteWorkLine(id: string): Promise<void> {
   const { error } = await supabase
     .from('work_lines')

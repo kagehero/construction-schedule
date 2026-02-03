@@ -7,7 +7,13 @@ const config: Config = {
       colors: {
         sidebar: "#121725",
         cardBg: "#1b2234",
-        accent: "#2f80ed"
+        accent: "#2f80ed",
+        "theme-body": "var(--color-bg-body)",
+        "theme-sidebar": "var(--color-bg-sidebar)",
+        "theme-card": "var(--color-bg-card)",
+        "theme-main": "var(--color-bg-main)",
+        "theme-schedule-footer": "var(--color-bg-schedule-footer)",
+        "theme-accent": "var(--color-accent)",
       },
       borderRadius: {
         xl: "0.75rem"
