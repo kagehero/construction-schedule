@@ -14,25 +14,9 @@ import { createAssignmentsForRange } from "@/domain/schedule/service";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthGuard } from "@/components/AuthGuard";
 import toast from "react-hot-toast";
-import { getWorkLines } from "@/lib/supabase/schedule";
+import { getWorkLines, getAssignments, createAssignments, deleteAssignments, getMembers } from "@/lib/supabase/schedule";
 import { getProjects } from "@/lib/supabase/projects";
 import type { Project } from "@/domain/projects/types";
-
-const mockMembers: Member[] = [
-  { id: "m1", name: "寺道雅気" },
-  { id: "m2", name: "寺道隆浩" },
-  { id: "m3", name: "大和優士" },
-  { id: "m4", name: "岡崎永遠" },
-  { id: "m5", name: "黒澤健二" },
-  { id: "m6", name: "安田零唯" },
-  { id: "m7", name: "林工業(大橋)" },
-  { id: "m8", name: "林工業(中嶋)" },
-  { id: "m9", name: "フジシン(立松)" },
-  { id: "m10", name: "YNP(土屋)" },
-  { id: "m11", name: "YNP(大野)" },
-  { id: "m12", name: "YNP(長谷部)" },
-  { id: "m13", name: "藤工業(田中)" }
-];
 
 // カレンダー上の丸アイコン用の省略名を生成
 const getMemberShortName = (name: string): string => {
@@ -78,6 +62,8 @@ export default function SchedulePage() {
   });
   const [selectedWorkLineId, setSelectedWorkLineId] = useState<string>("");
   const [filteredWorkLineId, setFilteredWorkLineId] = useState<string>(""); // テーブル表示用のフィルター
+  const [rangeStartDate, setRangeStartDate] = useState<string>(""); // 期間まとめて配置用の開始日
+  const [rangeEndDate, setRangeEndDate] = useState<string>(""); // 期間まとめて配置用の終了日
   const [holidayWeekdays, setHolidayWeekdays] = useState<number[]>([]);
   const [selectionHolidayWeekdays, setSelectionHolidayWeekdays] = useState<
     number[]
@@ -91,6 +77,7 @@ export default function SchedulePage() {
   const [modalHolidayWeekdays, setModalHolidayWeekdays] = useState<number[]>([]);
   const [workLines, setWorkLines] = useState<WorkLine[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -99,17 +86,19 @@ export default function SchedulePage() {
 
   const { isAdmin, signOut, profile } = useAuth();
 
-  // Load work lines and projects from database
+  // Load work lines, projects, and members from database
   useEffect(() => {
     const loadData = async () => {
       try {
         setIsLoadingData(true);
-        const [lines, projs] = await Promise.all([
+        const [lines, projs, membersData] = await Promise.all([
           getWorkLines(),
-          getProjects()
+          getProjects(),
+          getMembers()
         ]);
         setWorkLines(lines);
         setProjects(projs);
+        setMembers(membersData);
       } catch (error) {
         console.error("Failed to load data:", error);
         toast.error("データの読み込みに失敗しました。");
@@ -119,6 +108,35 @@ export default function SchedulePage() {
     };
     loadData();
   }, []);
+
+  // Load assignments when week changes or on initial load
+  useEffect(() => {
+    const loadAssignmentsForWeek = async () => {
+      try {
+        const weekStart = format(currentWeekStart, "yyyy-MM-dd");
+        const weekEnd = format(addDays(currentWeekStart, 6), "yyyy-MM-dd");
+        // Load all assignments and filter for current week
+        const allAssignments = await getAssignments();
+        const weekAssignments = allAssignments.filter(
+          (a) => a.date >= weekStart && a.date <= weekEnd
+        );
+        // Update assignments state with current week's data
+        setAssignments((prev) => {
+          // Keep assignments outside current week, replace assignments within current week
+          const outsideWeek = prev.filter(
+            (a) => a.date < weekStart || a.date > weekEnd
+          );
+          return [...outsideWeek, ...weekAssignments];
+        });
+      } catch (error) {
+        console.error("Failed to load assignments for week:", error);
+        toast.error("割り当てデータの読み込みに失敗しました。");
+      }
+    };
+    if (!isLoadingData && workLines.length > 0) {
+      loadAssignmentsForWeek();
+    }
+  }, [currentWeekStart, isLoadingData, workLines.length]);
 
   // 表示するワークグループをフィルタリング
   const displayedLines = useMemo(() => {
@@ -289,7 +307,7 @@ export default function SchedulePage() {
     );
   };
 
-  const applySelection = () => {
+  const applySelection = async () => {
     if (!isAdmin) {
       toast.error('この操作は管理者のみ実行できます。閲覧者権限では編集操作はできません。');
       return;
@@ -300,24 +318,56 @@ export default function SchedulePage() {
     const weekday = selectedDate.getDay();
     const isHoliday = selectionHolidayWeekdays.includes(weekday);
     
-    setAssignments((prev) => {
-      const filtered = prev.filter(
-        (a) => !(a.workLineId === workLineId && a.date === date)
+    // Validate member IDs exist in database
+    if (selectedMemberIds.length > 0) {
+      const invalidMemberIds = selectedMemberIds.filter(
+        (memberId) => !members.some((m) => m.id === memberId)
       );
-      const added: Assignment[] = selectedMemberIds.map((memberId) => ({
-        id: `${workLineId}_${memberId}_${date}`,
-        workLineId,
-        date,
-        memberId,
-        isHoliday,
-        isConfirmed: false
-      }));
-      return [...filtered, ...added];
-    });
-    setSelection(null);
+      if (invalidMemberIds.length > 0) {
+        toast.error(`無効なメンバーIDが含まれています: ${invalidMemberIds.join(', ')}`);
+        return;
+      }
+    }
+    
+    try {
+      // Delete existing assignments for this workLineId and date
+      await deleteAssignments(workLineId, date);
+      
+      // Create new assignments
+      if (selectedMemberIds.length > 0) {
+        const newAssignments: Omit<Assignment, 'id'>[] = selectedMemberIds.map((memberId) => ({
+          workLineId,
+          date,
+          memberId,
+          isHoliday,
+          isConfirmed: false
+        }));
+        const created = await createAssignments(newAssignments);
+        
+        // Update local state
+        setAssignments((prev) => {
+          const filtered = prev.filter(
+            (a) => !(a.workLineId === workLineId && a.date === date)
+          );
+          return [...filtered, ...created];
+        });
+      } else {
+        // If no members selected, just remove from local state
+        setAssignments((prev) => prev.filter(
+          (a) => !(a.workLineId === workLineId && a.date === date)
+        ));
+      }
+      
+      toast.success("メンバーの割り当てを保存しました。");
+      setSelection(null);
+    } catch (error: any) {
+      console.error("Failed to save assignments:", error);
+      const errorMessage = error?.message || error?.details || "メンバーの割り当ての保存に失敗しました。";
+      toast.error(`エラー: ${errorMessage}`);
+    }
   };
 
-  const handleBulkAssign = (
+  const handleBulkAssign = async (
     workLineId?: string,
     startDate?: string,
     endDate?: string,
@@ -341,29 +391,65 @@ export default function SchedulePage() {
       !finalWorkLineId
     )
       return;
-    const created = createAssignmentsForRange({
-      workLineId: finalWorkLineId,
-      memberIds: finalMemberIds,
-      startDate: finalStartDate,
-      endDate: finalEndDate,
-      holidayWeekdays: finalHolidayWeekdays
-    });
-    setAssignments((prev) => {
-      const keys = new Set(created.map((c) => `${c.workLineId}-${c.date}`));
-      const filtered = prev.filter(
-        (a) => !keys.has(`${a.workLineId}-${a.date}`)
-      );
-      return [...filtered, ...created];
-    });
+    
+    // Validate member IDs exist in database
+    const invalidMemberIds = finalMemberIds.filter(
+      (memberId) => !members.some((m) => m.id === memberId)
+    );
+    if (invalidMemberIds.length > 0) {
+      toast.error(`無効なメンバーIDが含まれています: ${invalidMemberIds.join(', ')}`);
+      return;
+    }
+    
+    try {
+      // Delete existing assignments for the date range
+      const start = new Date(finalStartDate);
+      const end = new Date(finalEndDate);
+      const days = [];
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        days.push(format(d, "yyyy-MM-dd"));
+      }
+      
+      // Delete assignments for each day in the range
+      for (const day of days) {
+        await deleteAssignments(finalWorkLineId, day);
+      }
+      
+      // Create new assignments
+      const assignmentsToCreate = createAssignmentsForRange({
+        workLineId: finalWorkLineId,
+        memberIds: finalMemberIds,
+        startDate: finalStartDate,
+        endDate: finalEndDate,
+        holidayWeekdays: finalHolidayWeekdays
+      });
+      
+      const created = await createAssignments(assignmentsToCreate);
+      
+      // Update local state
+      setAssignments((prev) => {
+        const keys = new Set(created.map((c) => `${c.workLineId}-${c.date}`));
+        const filtered = prev.filter(
+          (a) => !keys.has(`${a.workLineId}-${a.date}`)
+        );
+        return [...filtered, ...created];
+      });
+      
+      toast.success("期間のメンバー割り当てを保存しました。");
+    } catch (error: any) {
+      console.error("Failed to save bulk assignments:", error);
+      const errorMessage = error?.message || error?.details || "期間のメンバー割り当ての保存に失敗しました。";
+      toast.error(`エラー: ${errorMessage}`);
+    }
   };
 
   const openBulkAssignModal = () => {
     setShowBulkAssignModal(true);
     // モーダルを開くときに現在の値を初期値として設定
     setModalWorkLineId(selectedWorkLineId);
-    // 現在表示している週の開始日と終了日を初期値として設定
-    const weekStart = format(currentWeekStart, "yyyy-MM-dd");
-    const weekEnd = format(addDays(currentWeekStart, 6), "yyyy-MM-dd");
+    // カードで選択した開始日・終了日があればそれを使用、なければ現在表示している週の開始日と終了日を初期値として設定
+    const weekStart = rangeStartDate || format(currentWeekStart, "yyyy-MM-dd");
+    const weekEnd = rangeEndDate || format(addDays(currentWeekStart, 6), "yyyy-MM-dd");
     setModalRangeStart(weekStart);
     setModalRangeEnd(weekEnd);
     setModalMemberIds([...selectedMemberIds]);
@@ -382,6 +468,9 @@ export default function SchedulePage() {
       modalMemberIds,
       modalHolidayWeekdays
     );
+    // モーダルで確定した開始日・終了日をカードの状態にも反映
+    setRangeStartDate(modalRangeStart);
+    setRangeEndDate(modalRangeEnd);
     closeBulkAssignModal();
   };
 
@@ -464,6 +553,50 @@ export default function SchedulePage() {
                   ))}
                 </select>
               </div>
+              <div>
+                <label className="block mb-1">開始日</label>
+                <input
+                  type="date"
+                  className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1 text-[11px]"
+                  value={rangeStartDate}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setRangeStartDate(value);
+                    // 開始日が選択されたら、その日を含む週の月曜日を計算して工程表を更新
+                    if (value) {
+                      const selectedDate = new Date(value);
+                      const dayOfWeek = selectedDate.getDay();
+                      const diff = selectedDate.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // 月曜日を週の始まりとする
+                      const monday = new Date(selectedDate);
+                      monday.setDate(diff);
+                      monday.setHours(0, 0, 0, 0);
+                      setCurrentWeekStart(monday);
+                    }
+                  }}
+                />
+              </div>
+              <div>
+                <label className="block mb-1">終了日</label>
+                <input
+                  type="date"
+                  className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1 text-[11px]"
+                  value={rangeEndDate}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setRangeEndDate(value);
+                    // 終了日が選択されたら、その日を含む週の月曜日を計算して工程表を更新
+                    if (value) {
+                      const selectedDate = new Date(value);
+                      const dayOfWeek = selectedDate.getDay();
+                      const diff = selectedDate.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // 月曜日を週の始まりとする
+                      const monday = new Date(selectedDate);
+                      monday.setDate(diff);
+                      monday.setHours(0, 0, 0, 0);
+                      setCurrentWeekStart(monday);
+                    }
+                  }}
+                />
+              </div>
             </div>
           </Card>
         )}
@@ -491,9 +624,53 @@ export default function SchedulePage() {
               </select>
             </div>
             <div>
+              <label className="block mb-1">開始日</label>
+              <input
+                type="date"
+                className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1 text-[11px]"
+                value={rangeStartDate}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setRangeStartDate(value);
+                  // 開始日が選択されたら、その日を含む週の月曜日を計算して工程表を更新
+                  if (value) {
+                    const selectedDate = new Date(value);
+                    const dayOfWeek = selectedDate.getDay();
+                    const diff = selectedDate.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // 月曜日を週の始まりとする
+                    const monday = new Date(selectedDate);
+                    monday.setDate(diff);
+                    monday.setHours(0, 0, 0, 0);
+                    setCurrentWeekStart(monday);
+                  }
+                }}
+              />
+            </div>
+            <div>
+              <label className="block mb-1">終了日</label>
+              <input
+                type="date"
+                className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1 text-[11px]"
+                value={rangeEndDate}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setRangeEndDate(value);
+                  // 終了日が選択されたら、その日を含む週の月曜日を計算して工程表を更新
+                  if (value) {
+                    const selectedDate = new Date(value);
+                    const dayOfWeek = selectedDate.getDay();
+                    const diff = selectedDate.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // 月曜日を週の始まりとする
+                    const monday = new Date(selectedDate);
+                    monday.setDate(diff);
+                    monday.setHours(0, 0, 0, 0);
+                    setCurrentWeekStart(monday);
+                  }
+                }}
+              />
+            </div>
+            <div>
               <label className="block mb-1">対象メンバー（複数選択）</label>
               <div className="flex flex-wrap gap-1">
-                {mockMembers.map((m) => (
+                {members.map((m) => (
                   <button
                     key={m.id}
                     type="button"
@@ -582,7 +759,7 @@ export default function SchedulePage() {
               scrollbarColor: '#475569 #1e293b'
             }}
           >
-            <table className="border-collapse text-[11px] w-full" style={{ minHeight: '280px' }}>
+            <table className="border-collapse text-[11px] w-full" style={{ tableLayout: 'fixed', minHeight: '280px' }} cellPadding="0" cellSpacing="0">
               <colgroup>
                 <col style={{ width: '128px' }} />
                 {days.map((_, index) => (
@@ -631,10 +808,10 @@ export default function SchedulePage() {
                   displayedLines.map((line) => {
                   const isSelected = filteredWorkLineId === line.id;
                   return (
-                    <tr key={line.id} className={isSelected ? "bg-slate-800/30" : ""}>
+                    <tr key={line.id} className={isSelected ? "bg-slate-800/30" : ""} style={{ height: '110px', lineHeight: '110px' }}>
                       <td className={`sticky left-0 z-10 border-t border-r border-slate-700 px-2 py-2 text-left align-top overflow-hidden ${
                         isSelected ? "bg-slate-800/50" : "bg-slate-900/60"
-                      }`}>
+                      }`} style={{ height: '110px', maxHeight: '110px', verticalAlign: 'top', padding: '8px', lineHeight: 'normal' }}>
                         <div className="flex items-center gap-2 min-w-0">
                         <span
                             className="inline-block w-1.5 h-8 rounded-full flex-shrink-0"
@@ -649,6 +826,9 @@ export default function SchedulePage() {
                       const iso = d.iso;
                       const cellAssignments = getCellAssignments(line.id, iso);
                       const locked = isCellLocked(line.id, iso);
+                      const project = getProjectForWorkLine(line.id, iso);
+                      // 案件とメンバーが割り当てられているかチェック
+                      const hasProjectAndMembers = project !== null && cellAssignments.length > 0;
                       return (
                         <td
                           key={iso}
@@ -659,13 +839,11 @@ export default function SchedulePage() {
                               ? 'translate-x-[100%] opacity-0' 
                               : 'translate-x-0 opacity-100'
                           }`}
-                          style={{ maxWidth: 0 }}
+                          style={{ maxWidth: 0, height: '110px', maxHeight: '110px', verticalAlign: 'top', padding: 0, lineHeight: 'normal' }}
                         >
-                          <div className="w-full min-h-[100px] px-1.5 py-1.5 flex flex-col gap-1.5 overflow-hidden">
+                          <div className="w-full h-full px-1.5 py-1.5 flex flex-col gap-1 overflow-hidden" style={{ height: '110px', maxHeight: '110px', minHeight: '110px', boxSizing: 'border-box', overflow: 'hidden' }}>
                             {/* 案件名表示 */}
-                            {(() => {
-                              const project = getProjectForWorkLine(line.id, iso);
-                              return project ? (
+                            {project ? (
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -673,13 +851,13 @@ export default function SchedulePage() {
                                     setSelectedProject(project);
                                     setShowProjectModal(true);
                                   }}
-                                  className="text-[11px] text-accent font-semibold truncate bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded px-2 py-1 text-left w-full transition-colors flex-shrink-0"
+                                  className="text-[11px] text-accent font-semibold truncate bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded px-2 py-0.5 text-left w-full transition-colors flex-shrink-0"
                                   title={`${project.siteName} - クリックで詳細を表示`}
+                                  style={{ height: '24px', minHeight: '24px', maxHeight: '24px' }}
                                 >
                                   📋 {project.siteName}
                                 </button>
-                              ) : null;
-                            })()}
+                              ) : null}
                           <button
                             type="button"
                               onClick={() => {
@@ -687,13 +865,14 @@ export default function SchedulePage() {
                                 openSelection(line.id, iso);
                               }}
                               disabled={locked}
-                              className={`w-full flex-1 px-1.5 py-1 text-left rounded min-w-0 overflow-hidden min-h-[40px] ${
+                              className={`w-full px-1.5 py-0.5 text-left rounded min-w-0 overflow-hidden ${
                                 locked
                                   ? "bg-slate-900/40 text-slate-500 cursor-not-allowed"
                                   : "hover:bg-slate-800/60"
                               }`}
+                              style={{ height: '40px', minHeight: '40px', maxHeight: '40px', flexShrink: 0, overflow: 'hidden' }}
                           >
-                              <div className="flex flex-wrap gap-1 min-w-0 items-center">
+                              <div className="flex gap-1 min-w-0 items-center overflow-hidden" style={{ height: '100%', overflow: 'hidden' }}>
                                 {(() => {
                                   // 列の幅に応じて表示できる人数を計算（各バッジは約28px、gapは4px）
                                   // 保守的に5人まで表示し、残りを数字で表示
@@ -705,9 +884,9 @@ export default function SchedulePage() {
                                     <>
                                       {visibleAssignments.map((a) => {
                                 const member =
-                                          mockMembers.find(
-                                            (m) => m.id === a.memberId
-                                          ) ?? mockMembers[0];
+                                          members.find(
+                                          (m) => m.id === a.memberId
+                                          ) ?? members[0];
                                 return (
                                   <span
                                     key={a.id}
@@ -732,8 +911,8 @@ export default function SchedulePage() {
                             </div>
                           </button>
                           
-                            <div className="flex items-center justify-end text-[9px] text-slate-500 min-w-0 flex-shrink-0">
-                              {isAdmin && (
+                            <div className="flex items-center justify-end text-[9px] text-slate-500 min-w-0 flex-shrink-0" style={{ height: '24px', minHeight: '24px', maxHeight: '24px', flexShrink: 0, marginTop: 'auto' }}>
+                              {isAdmin && hasProjectAndMembers && (
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -746,6 +925,7 @@ export default function SchedulePage() {
                                       : "bg-slate-800/60 text-slate-400 border border-slate-600 hover:bg-slate-700 hover:text-slate-200"
                                   }`}
                                   title={locked ? "ロック解除" : "この日を確定"}
+                                  style={{ flexShrink: 0 }}
                                 >
                                   {locked ? "🔒" : "🔓"}
                                 </button>
@@ -857,7 +1037,7 @@ export default function SchedulePage() {
                   登録済みメンバー（複数選択可）
                 </div>
                 <div className="flex flex-wrap gap-1">
-                  {mockMembers.map((m) => (
+                  {members.map((m) => (
                     <button
                       key={m.id}
                       type="button"
@@ -970,7 +1150,7 @@ export default function SchedulePage() {
               <div>
                 <label className="block mb-1 text-[11px] text-slate-300">対象メンバー（複数選択可）</label>
                 <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto p-2 bg-slate-800/50 rounded-md">
-                  {mockMembers.map((m) => (
+                  {members.map((m) => (
                     <button
                       key={m.id}
                       type="button"

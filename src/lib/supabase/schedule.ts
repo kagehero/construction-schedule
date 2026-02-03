@@ -58,6 +58,30 @@ export async function createMember(member: Omit<Member, 'id'>): Promise<Member> 
   return toMember(data);
 }
 
+export async function updateMember(id: string, member: Partial<Omit<Member, 'id'>>): Promise<Member> {
+  const updateData: any = {};
+  if (member.name !== undefined) updateData.name = member.name;
+
+  const { data, error } = await supabase
+    .from('members')
+    .update(updateData)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return toMember(data);
+}
+
+export async function deleteMember(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('members')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw error;
+}
+
 // Work Lines
 export async function getWorkLines(projectId?: string): Promise<WorkLine[]> {
   let query = supabase.from('work_lines').select('*');

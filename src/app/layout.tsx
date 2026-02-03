@@ -23,8 +23,10 @@ function Sidebar() {
 
   // 管理者用のナビゲーションメニュー
   const adminMenuItems = [
+    { href: '/dashboard', label: 'ダッシュボード' },
     { href: '/schedule', label: '工程・人員配置' },
     { href: '/projects', label: '案件立ち上げ' },
+    { href: '/members', label: 'メンバー管理' },
   ];
 
   // ビューア用のナビゲーションメニュー
