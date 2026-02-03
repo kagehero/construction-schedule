@@ -87,6 +87,15 @@ export async function createWorkLine(workLine: Omit<WorkLine, 'id'>): Promise<Wo
   return toWorkLine(data);
 }
 
+export async function deleteWorkLine(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('work_lines')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw error;
+}
+
 // Assignments
 export async function getAssignments(
   workLineId?: string,

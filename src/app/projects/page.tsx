@@ -5,9 +5,11 @@ import { z } from "zod";
 import type { ContractType, Project } from "@/domain/projects/types";
 import { Card } from "@/components/ui/card";
 import { getProjects, createProject, updateProject, deleteProject } from "@/lib/supabase/projects";
+import { getWorkLines, createWorkLine, deleteWorkLine } from "@/lib/supabase/schedule";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthGuard } from "@/components/AuthGuard";
 import toast from "react-hot-toast";
+import type { WorkLine } from "@/domain/schedule/types";
 
 const projectSchema = z.object({
   title: z.string().optional(), // Optional, will use siteName if empty
@@ -46,6 +48,8 @@ export default function ProjectsPage() {
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [workGroupNames, setWorkGroupNames] = useState<string[]>([]);
+  const [existingWorkLines, setExistingWorkLines] = useState<WorkLine[]>([]);
   const { isAdmin, signOut, profile } = useAuth();
 
   // Load projects from database on mount
@@ -107,7 +111,29 @@ export default function ProjectsPage() {
       };
 
       const createdProject = await createProject(newProject);
+      
+      // Create work lines for selected work groups
+      if (workGroupNames.length > 0) {
+        const colors = ["#3b82f6", "#f97316", "#22c55e", "#eab308", "#a855f7", "#ef4444", "#06b6d4"];
+        for (let i = 0; i < workGroupNames.length; i++) {
+          const name = workGroupNames[i].trim();
+          if (name) {
+            try {
+              await createWorkLine({
+                projectId: createdProject.id,
+                name: name,
+                color: colors[i % colors.length]
+              });
+            } catch (error) {
+              console.error(`Failed to create work line "${name}":`, error);
+              toast.error(`ワークグループ「${name}」の作成に失敗しました。`);
+            }
+          }
+        }
+      }
+      
       setProjects((prev) => [createdProject, ...prev]);
+      toast.success("案件が登録されました。");
       
       // Reset form
       setForm({
@@ -120,17 +146,19 @@ export default function ProjectsPage() {
         startDate: "",
         endDate: ""
       });
+      setWorkGroupNames([]);
     } catch (error) {
       console.error("Failed to create project:", error);
       setErrors({ 
         submit: "案件の登録に失敗しました。もう一度お試しください。" 
       });
+      toast.error("案件の登録に失敗しました。");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleEdit = (project: Project) => {
+  const handleEdit = async (project: Project) => {
     setEditingProject(project);
     setForm({
       title: project.title || "",
@@ -142,6 +170,18 @@ export default function ProjectsPage() {
       startDate: project.startDate,
       endDate: project.endDate
     });
+    
+    // Load existing work lines for this project
+    try {
+      const workLines = await getWorkLines(project.id);
+      setExistingWorkLines(workLines);
+      setWorkGroupNames(workLines.map(wl => wl.name));
+    } catch (error) {
+      console.error("Failed to load work lines:", error);
+      setExistingWorkLines([]);
+      setWorkGroupNames([]);
+    }
+    
     // Scroll to form
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -168,19 +208,57 @@ export default function ProjectsPage() {
     try {
       const updateData: Partial<Omit<Project, 'id'>> = {
         title: form.title || form.siteName,
-        customerName: form.customerName,
-        siteName: form.siteName,
-        contractType: form.contractType as ContractType,
-        contractAmount: isUkeoi ? form.contractAmount ?? 0 : undefined,
-        siteAddress: form.siteAddress,
-        startDate: form.startDate,
-        endDate: form.endDate
-      };
+      customerName: form.customerName,
+      siteName: form.siteName,
+      contractType: form.contractType as ContractType,
+      contractAmount: isUkeoi ? form.contractAmount ?? 0 : undefined,
+      siteAddress: form.siteAddress,
+      startDate: form.startDate,
+      endDate: form.endDate
+    };
 
       const updatedProject = await updateProject(editingProject.id, updateData);
+      
+      // Update work lines
+      // Get current work lines to compare
+      const currentWorkLines = await getWorkLines(updatedProject.id);
+      const currentNames = currentWorkLines.map(wl => wl.name);
+      const newNames = workGroupNames.filter(name => name.trim() !== "");
+      
+      // Delete work lines that are no longer in the new list
+      for (const currentWorkLine of currentWorkLines) {
+        if (!newNames.includes(currentWorkLine.name)) {
+          try {
+            await deleteWorkLine(currentWorkLine.id);
+          } catch (error) {
+            console.error(`Failed to delete work line "${currentWorkLine.name}":`, error);
+            toast.error(`ワークグループ「${currentWorkLine.name}」の削除に失敗しました。`);
+          }
+        }
+      }
+      
+      // Create new work lines that don't exist yet
+      const colors = ["#3b82f6", "#f97316", "#22c55e", "#eab308", "#a855f7", "#ef4444", "#06b6d4"];
+      for (let i = 0; i < newNames.length; i++) {
+        const name = newNames[i].trim();
+        if (name && !currentNames.includes(name)) {
+          try {
+            await createWorkLine({
+              projectId: updatedProject.id,
+              name: name,
+              color: colors[i % colors.length]
+            });
+          } catch (error) {
+            console.error(`Failed to create work line "${name}":`, error);
+            toast.error(`ワークグループ「${name}」の作成に失敗しました。`);
+          }
+        }
+      }
+      
       setProjects((prev) => 
         prev.map((p) => (p.id === updatedProject.id ? updatedProject : p))
       );
+      toast.success("案件が更新されました。");
       
       // Reset form and editing state
       setEditingProject(null);
@@ -194,11 +272,14 @@ export default function ProjectsPage() {
         startDate: "",
         endDate: ""
       });
+      setWorkGroupNames([]);
+      setExistingWorkLines([]);
     } catch (error) {
       console.error("Failed to update project:", error);
       setErrors({ 
         submit: "案件の更新に失敗しました。もう一度お試しください。" 
       });
+      toast.error("案件の更新に失敗しました。");
     } finally {
       setIsSubmitting(false);
     }
@@ -236,19 +317,41 @@ export default function ProjectsPage() {
       startDate: "",
       endDate: ""
     });
+    setWorkGroupNames([]);
+    setExistingWorkLines([]);
     setErrors({});
+  };
+
+  const addWorkGroup = () => {
+    setWorkGroupNames((prev) => [...prev, ""]);
+  };
+
+  const removeWorkGroup = (index: number) => {
+    setWorkGroupNames((prev) => prev.filter((_, i) => i !== index));
+    // If editing, also remove from existing work lines if it exists
+    if (editingProject && existingWorkLines[index]) {
+      setExistingWorkLines((prev) => prev.filter((_, i) => i !== index));
+    }
+  };
+
+  const updateWorkGroupName = (index: number, value: string) => {
+    setWorkGroupNames((prev) => {
+      const newNames = [...prev];
+      newNames[index] = value;
+      return newNames;
+    });
   };
 
   return (
     <AuthGuard requireAdmin={true}>
-      <div className="h-screen flex flex-col">
-        <header className="px-6 py-3 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-baseline gap-4">
-            <h1 className="text-lg font-semibold">案件立ち上げ</h1>
-            <span className="text-xs text-slate-400">
-              取引先・現場・契約情報の基本登録
-            </span>
-          </div>
+    <div className="h-screen flex flex-col">
+      <header className="px-6 py-3 border-b border-slate-800 flex items-center justify-between">
+        <div className="flex items-baseline gap-4">
+          <h1 className="text-lg font-semibold">案件立ち上げ</h1>
+          <span className="text-xs text-slate-400">
+            取引先・現場・契約情報の基本登録
+          </span>
+        </div>
           <div className="flex items-center gap-2 text-[11px]">
             {profile && (
               <>
@@ -264,7 +367,7 @@ export default function ProjectsPage() {
               </>
             )}
           </div>
-        </header>
+      </header>
       <div className="flex-1 overflow-hidden grid grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)] gap-4 p-4">
         <Card title={editingProject ? "案件編集" : "新規案件登録"}>
           <form className="space-y-4 text-sm" onSubmit={editingProject ? handleUpdate : handleSubmit}>
@@ -362,6 +465,43 @@ export default function ProjectsPage() {
                 />
               </div>
             </div>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block">作業班（ワークグループ）</label>
+                <button
+                  type="button"
+                  onClick={addWorkGroup}
+                  className="text-xs px-2 py-1 rounded border border-slate-600 bg-slate-800 hover:bg-slate-700 text-slate-300"
+                >
+                  + 追加
+                </button>
+              </div>
+              <div className="space-y-2">
+                {workGroupNames.map((name, index) => (
+                  <div key={index} className="flex gap-2">
+                    <input
+                      type="text"
+                      className="flex-1 rounded-md bg-slate-900 border border-slate-700 px-3 py-2"
+                      value={name}
+                      onChange={(e) => updateWorkGroupName(index, e.target.value)}
+                      placeholder="作業班名を入力"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeWorkGroup(index)}
+                      className="px-3 py-2 rounded-md border border-red-600 bg-slate-800 hover:bg-red-900/20 text-red-400 text-xs"
+                    >
+                      削除
+                    </button>
+                  </div>
+                ))}
+                {workGroupNames.length === 0 && (
+                  <p className="text-xs text-slate-500">
+                    作業班を追加するには「+ 追加」ボタンをクリックしてください
+                  </p>
+                )}
+              </div>
+            </div>
             {errors.submit && (
               <p className="text-xs text-red-400">{errors.submit}</p>
             )}
@@ -403,7 +543,7 @@ export default function ProjectsPage() {
               <p className="text-slate-500 text-xs">読み込み中...</p>
             ) : (
               <>
-                {projects.map((p) => (
+            {projects.map((p) => (
               <div
                 key={p.id}
                 className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2"
@@ -411,8 +551,8 @@ export default function ProjectsPage() {
                 <div className="flex items-center justify-between">
                   <div className="font-semibold">{p.siteName}</div>
                   <div className="flex items-center gap-2">
-                    <div className="text-[10px] text-slate-400">
-                      {p.startDate} ~ {p.endDate}
+                  <div className="text-[10px] text-slate-400">
+                    {p.startDate} ~ {p.endDate}
                     </div>
                     <div className="flex gap-1">
                       <button
@@ -452,10 +592,10 @@ export default function ProjectsPage() {
                 </div>
               </div>
             ))}
-                {projects.length === 0 && (
-                  <p className="text-slate-500 text-xs">
-                    まだ案件が登録されていません。
-                  </p>
+            {projects.length === 0 && (
+              <p className="text-slate-500 text-xs">
+                まだ案件が登録されていません。
+              </p>
                 )}
               </>
             )}
@@ -494,7 +634,7 @@ export default function ProjectsPage() {
           </div>
         </div>
       )}
-      </div>
+    </div>
     </AuthGuard>
   );
 }

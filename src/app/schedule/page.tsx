@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState, useRef, useEffect } from "react";
-import { addDays, format, eachDayOfInterval, parseISO } from "date-fns";
+import { useMemo, useState, useEffect } from "react";
+import { addDays, format } from "date-fns";
 import { ja } from "date-fns/locale";
 import { Card } from "@/components/ui/card";
 import type {
@@ -14,6 +14,9 @@ import { createAssignmentsForRange } from "@/domain/schedule/service";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthGuard } from "@/components/AuthGuard";
 import toast from "react-hot-toast";
+import { getWorkLines } from "@/lib/supabase/schedule";
+import { getProjects } from "@/lib/supabase/projects";
+import type { Project } from "@/domain/projects/types";
 
 const mockMembers: Member[] = [
   { id: "m1", name: "寺道雅気" },
@@ -47,12 +50,7 @@ const getMemberShortName = (name: string): string => {
   return name.slice(0, 2);
 };
 
-const mockLines: WorkLine[] = [
-  { id: "l1", projectId: "p1", name: "堀川班", color: "#3b82f6" },
-  { id: "l2", projectId: "p1", name: "辻班", color: "#f97316" },
-  { id: "l3", projectId: "p1", name: "橋本班", color: "#22c55e" },
-  { id: "l4", projectId: "p1", name: "小原班", color: "#eab308" }
-];
+// mockLinesは削除し、データベースから取得する
 
 const DAYS_VISIBLE_IN_VIEWPORT = 7; // 画面に表示する日数
 
@@ -69,8 +67,15 @@ export default function SchedulePage() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [selection, setSelection] = useState<SelectionState | null>(null);
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
-  const [rangeStart, setRangeStart] = useState<string>("");
-  const [rangeEnd, setRangeEnd] = useState<string>("");
+  const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => {
+    // 現在の日付から、その週の月曜日を取得
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // 月曜日を週の始まりとする
+    const monday = new Date(today.setDate(diff));
+    monday.setHours(0, 0, 0, 0);
+    return monday;
+  });
   const [selectedWorkLineId, setSelectedWorkLineId] = useState<string>("");
   const [filteredWorkLineId, setFilteredWorkLineId] = useState<string>(""); // テーブル表示用のフィルター
   const [holidayWeekdays, setHolidayWeekdays] = useState<number[]>([]);
@@ -78,89 +83,151 @@ export default function SchedulePage() {
     number[]
   >([]);
   const [dayStatuses, setDayStatuses] = useState<DaySiteStatus[]>([]);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [containerWidth, setContainerWidth] = useState<number>(0);
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false);
   const [modalWorkLineId, setModalWorkLineId] = useState<string>("");
   const [modalRangeStart, setModalRangeStart] = useState<string>("");
   const [modalRangeEnd, setModalRangeEnd] = useState<string>("");
   const [modalMemberIds, setModalMemberIds] = useState<string[]>([]);
   const [modalHolidayWeekdays, setModalHolidayWeekdays] = useState<number[]>([]);
+  const [workLines, setWorkLines] = useState<WorkLine[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [showProjectModal, setShowProjectModal] = useState(false);
 
   const { isAdmin, signOut, profile } = useAuth();
 
-  // 表示するワークグループをフィルタリング
-  const displayedLines = useMemo(() => {
-    if (!filteredWorkLineId) return mockLines;
-    return mockLines.filter((line) => line.id === filteredWorkLineId);
-  }, [filteredWorkLineId]);
-
-  const scrollToNextWeek = () => {
-    if (scrollContainerRef.current) {
-      const scrollAmount = containerWidth > 0 ? (containerWidth - 128) / 7 * 7 : 0;
-      scrollContainerRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
-    }
-  };
-
-  const scrollToPrevWeek = () => {
-    if (scrollContainerRef.current) {
-      const scrollAmount = containerWidth > 0 ? (containerWidth - 128) / 7 * 7 : 0;
-      scrollContainerRef.current.scrollBy({ left: -scrollAmount, behavior: 'smooth' });
-    }
-  };
-
+  // Load work lines and projects from database
   useEffect(() => {
-    const updateWidth = () => {
-      if (scrollContainerRef.current?.parentElement) {
-        const parentElement = scrollContainerRef.current.parentElement;
-        const parentWidth = parentElement.clientWidth;
-        // Account for padding (p-4 = 1rem = 16px on each side)
-        const availableWidth = parentWidth - 32;
-        setContainerWidth(availableWidth > 0 ? availableWidth : parentWidth);
+    const loadData = async () => {
+      try {
+        setIsLoadingData(true);
+        const [lines, projs] = await Promise.all([
+          getWorkLines(),
+          getProjects()
+        ]);
+        setWorkLines(lines);
+        setProjects(projs);
+      } catch (error) {
+        console.error("Failed to load data:", error);
+        toast.error("データの読み込みに失敗しました。");
+      } finally {
+        setIsLoadingData(false);
       }
     };
-
-    // Use a small delay to ensure DOM is ready
-    const timer = setTimeout(updateWidth, 100);
-    updateWidth();
-    window.addEventListener('resize', updateWidth);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener('resize', updateWidth);
-    };
+    loadData();
   }, []);
 
-  // 開始日と終了日が設定されている場合はその期間全体、そうでない場合は7日分を表示
-  const days = useMemo(() => {
-    if (rangeStart && rangeEnd) {
-      try {
-        const start = parseISO(rangeStart);
-        const end = parseISO(rangeEnd);
-        const dayArray = eachDayOfInterval({ start, end });
-        return dayArray.map((d) => ({
-          date: d,
-          iso: d.toISOString().slice(0, 10)
-        }));
-      } catch {
-        // 日付が無効な場合はフォールバック
-        return Array.from({ length: DAYS_VISIBLE_IN_VIEWPORT }, (_, i) => {
-          const d = addDays(baseDate, i);
-          return {
-            date: d,
-            iso: d.toISOString().slice(0, 10)
-          };
-        });
-      }
+  // 表示するワークグループをフィルタリング
+  const displayedLines = useMemo(() => {
+    if (!filteredWorkLineId) return workLines;
+    return workLines.filter((line) => line.id === filteredWorkLineId);
+  }, [filteredWorkLineId, workLines]);
+
+  // ワークグループに関連する案件を取得する関数
+  const getProjectForWorkLine = (workLineId: string, date: string): Project | null => {
+    const workLine = workLines.find(wl => wl.id === workLineId);
+    if (!workLine || !workLine.projectId) return null;
+    
+    const project = projects.find(p => p.id === workLine.projectId);
+    if (!project) return null;
+    
+    // 日付が案件の期間内かチェック
+    if (date >= project.startDate && date <= project.endDate) {
+      return project;
     }
-    // 期間が設定されていない場合は7日分を表示
+    
+    return null;
+  };
+
+  const goToNextWeek = () => {
+    if (isAnimating) return;
+    setIsAnimating(true);
+    setSlideDirection('left'); // 次の週 = 左にスライドアウト（新しいコンテンツが右から入る）
+    
+    // アニメーション開始（フェードアウト + スライドアウト）
+    setTimeout(() => {
+      // データを更新
+      setCurrentWeekStart(prev => addDays(prev, 7));
+      // アニメーション終了（フェードイン + スライドイン）
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          setSlideDirection(null);
+          setIsAnimating(false);
+        }, 10);
+      });
+    }, 300);
+  };
+
+  const goToPrevWeek = () => {
+    if (isAnimating) return;
+    setIsAnimating(true);
+    setSlideDirection('right'); // 前の週 = 右にスライドアウト（新しいコンテンツが左から入る）
+    
+    // アニメーション開始（フェードアウト + スライドアウト）
+    setTimeout(() => {
+      // データを更新
+      setCurrentWeekStart(prev => addDays(prev, -7));
+      // アニメーション終了（フェードイン + スライドイン）
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          setSlideDirection(null);
+          setIsAnimating(false);
+        }, 10);
+      });
+    }, 300);
+  };
+
+  const goToToday = () => {
+    if (isAnimating) return;
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // 月曜日を週の始まりとする
+    const monday = new Date(today.setDate(diff));
+    monday.setHours(0, 0, 0, 0);
+    
+    // 現在の週と比較して方向を決定
+    const currentMonday = new Date(currentWeekStart);
+    currentMonday.setHours(0, 0, 0, 0);
+    const targetMonday = new Date(monday);
+    targetMonday.setHours(0, 0, 0, 0);
+    
+    if (targetMonday.getTime() === currentMonday.getTime()) {
+      // 既に今週を表示している場合はアニメーション不要
+      return;
+    }
+    
+    setIsAnimating(true);
+    if (targetMonday > currentMonday) {
+      setSlideDirection('left');
+    } else {
+      setSlideDirection('right');
+    }
+    
+    setTimeout(() => {
+      setCurrentWeekStart(monday);
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          setSlideDirection(null);
+          setIsAnimating(false);
+        }, 10);
+      });
+    }, 300);
+  };
+
+
+  // 常に7日分（1週間）を表示
+  const days = useMemo(() => {
     return Array.from({ length: DAYS_VISIBLE_IN_VIEWPORT }, (_, i) => {
-        const d = addDays(baseDate, i);
-        return {
-          date: d,
-          iso: d.toISOString().slice(0, 10)
-        };
+      const d = addDays(currentWeekStart, i);
+      return {
+        date: d,
+        iso: d.toISOString().slice(0, 10)
+      };
     });
-  }, [baseDate, rangeStart, rangeEnd]);
+  }, [currentWeekStart]);
 
   const isCellLocked = (workLineId: string, iso: string) =>
     dayStatuses.some(
@@ -262,8 +329,8 @@ export default function SchedulePage() {
       return;
     }
     const finalWorkLineId = workLineId ?? selectedWorkLineId;
-    const finalStartDate = startDate ?? rangeStart;
-    const finalEndDate = endDate ?? rangeEnd;
+    const finalStartDate = startDate ?? modalRangeStart;
+    const finalEndDate = endDate ?? modalRangeEnd;
     const finalMemberIds = memberIds ?? selectedMemberIds;
     const finalHolidayWeekdays = holidayWeekdaysParam ?? holidayWeekdays;
 
@@ -294,8 +361,11 @@ export default function SchedulePage() {
     setShowBulkAssignModal(true);
     // モーダルを開くときに現在の値を初期値として設定
     setModalWorkLineId(selectedWorkLineId);
-    setModalRangeStart(rangeStart);
-    setModalRangeEnd(rangeEnd);
+    // 現在表示している週の開始日と終了日を初期値として設定
+    const weekStart = format(currentWeekStart, "yyyy-MM-dd");
+    const weekEnd = format(addDays(currentWeekStart, 6), "yyyy-MM-dd");
+    setModalRangeStart(weekStart);
+    setModalRangeEnd(weekEnd);
     setModalMemberIds([...selectedMemberIds]);
     setModalHolidayWeekdays([...holidayWeekdays]);
   };
@@ -354,8 +424,8 @@ export default function SchedulePage() {
 
   return (
     <AuthGuard>
-      <div className="h-screen flex flex-col">
-        <header className="px-6 py-3 border-b border-slate-800 flex items-center justify-between">
+    <div className="h-screen flex flex-col">
+      <header className="px-6 py-3 border-b border-slate-800 flex items-center justify-between">
         <div className="flex items-baseline gap-4">
           <h1 className="text-lg font-semibold">工程・人員配置</h1>
           <span className="text-xs text-slate-400">
@@ -387,41 +457,20 @@ export default function SchedulePage() {
                   }}
                 >
                   <option value="">すべて表示</option>
-                  {mockLines.map((line) => (
+                  {workLines.map((line) => (
                     <option key={line.id} value={line.id}>
                       {line.name}
                     </option>
                   ))}
                 </select>
               </div>
-              <div className="flex items-center gap-2">
-                <div>
-                  <label className="block mb-1">開始日</label>
-                  <input
-                    type="date"
-                    className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1"
-                    value={rangeStart}
-                    onChange={(e) => setRangeStart(e.target.value)}
-                  />
-                </div>
-                <span className="mt-6">〜</span>
-                <div>
-                  <label className="block mb-1">終了日</label>
-                  <input
-                    type="date"
-                    className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1"
-                    value={rangeEnd}
-                    onChange={(e) => setRangeEnd(e.target.value)}
-                  />
-                </div>
-              </div>
             </div>
           </Card>
         )}
         {/* 管理者用の期間まとめて配置カード */}
         {isAdmin && (
-          <Card title="期間まとめて配置 / 休み設定" className="text-xs">
-            <div className="flex flex-wrap items-end gap-4">
+        <Card title="期間まとめて配置 / 休み設定" className="text-xs">
+          <div className="flex flex-wrap items-end gap-4">
             <div>
               <label className="block mb-1">作業班</label>
               <select
@@ -434,33 +483,12 @@ export default function SchedulePage() {
                 }}
               >
                 <option value="">すべて表示</option>
-                {mockLines.map((line) => (
+                {workLines.map((line) => (
                   <option key={line.id} value={line.id}>
                     {line.name}
                   </option>
                 ))}
               </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <div>
-                <label className="block mb-1">開始日</label>
-                <input
-                  type="date"
-                  className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1"
-                  value={rangeStart}
-                  onChange={(e) => setRangeStart(e.target.value)}
-                />
-              </div>
-              <span className="mt-6">〜</span>
-              <div>
-                <label className="block mb-1">終了日</label>
-                <input
-                  type="date"
-                  className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1"
-                  value={rangeEnd}
-                  onChange={(e) => setRangeEnd(e.target.value)}
-                />
-              </div>
             </div>
             <div>
               <label className="block mb-1">対象メンバー（複数選択）</label>
@@ -516,49 +544,50 @@ export default function SchedulePage() {
           <div className="flex items-center gap-2 mb-2">
             <button
               type="button"
-              onClick={scrollToPrevWeek}
-              disabled={days.length <= 7}
-              className="px-3 py-1 rounded-md bg-slate-800 border border-slate-700 text-xs hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={goToPrevWeek}
+              disabled={isAnimating}
+              className="px-3 py-1 rounded-md bg-slate-800 border border-slate-700 text-xs hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
             >
               ← 前の週
             </button>
             <button
               type="button"
-              onClick={scrollToNextWeek}
-              disabled={days.length <= 7}
-              className="px-3 py-1 rounded-md bg-slate-800 border border-slate-700 text-xs hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={goToToday}
+              disabled={isAnimating}
+              className="px-3 py-1 rounded-md bg-slate-800 border border-slate-700 text-xs hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+            >
+              今週に戻る
+            </button>
+            <button
+              type="button"
+              onClick={goToNextWeek}
+              disabled={isAnimating}
+              className="px-3 py-1 rounded-md bg-slate-800 border border-slate-700 text-xs hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
             >
               次の週 →
             </button>
             <span className="text-xs text-slate-400 ml-auto">
-              {days.length > 7 ? `${days.length}日間（横スクロールで全期間を表示）` : `${days.length}日間`}
+              {days.length > 0 && (
+                <>
+                  {format(days[0].date, "yyyy年MM月dd日", { locale: ja })} 〜 {format(days[days.length - 1].date, "yyyy年MM月dd日", { locale: ja })}
+                </>
+              )}
             </span>
           </div>
           <div 
-            ref={scrollContainerRef}
-            className="overflow-x-auto overflow-y-auto h-[calc(100vh-250px)]"
+            className="overflow-y-auto h-[calc(100vh-250px)]"
             style={{ 
               width: '100%',
               scrollbarWidth: 'thin',
               scrollbarColor: '#475569 #1e293b'
             }}
           >
-            <table className="border-collapse text-[11px] table-fixed" style={{ 
-              width: days.length > 0 && containerWidth > 0
-                ? `${128 + ((containerWidth - 128) / 7 * days.length)}px` 
-                : '100%',
-              minWidth: containerWidth > 0 ? `${128 + ((containerWidth - 128) / 7 * 7)}px` : '100%'
-            }}>
+            <table className="border-collapse text-[11px] w-full" style={{ minHeight: '280px' }}>
               <colgroup>
                 <col style={{ width: '128px' }} />
-                {days.map((_, index) => {
-                  const columnWidth = containerWidth > 0 
-                    ? `${(containerWidth - 128) / 7}px` 
-                    : 'calc((100% - 128px) / 7)';
-                  return (
-                    <col key={`col-${index}`} style={{ width: columnWidth }} />
-                  );
-                })}
+                {days.map((_, index) => (
+                  <col key={`col-${index}`} />
+                ))}
               </colgroup>
               <thead>
                 <tr className="sticky top-0 bg-slate-900 z-10">
@@ -568,7 +597,13 @@ export default function SchedulePage() {
                   {days.map((d) => (
                     <th
                       key={d.iso}
-                      className="border-b border-l border-slate-700 px-1 py-1 text-center overflow-hidden"
+                      className={`border-b border-l border-slate-700 px-1 py-1 text-center overflow-hidden transition-all duration-300 ease-in-out ${
+                        slideDirection === 'left' 
+                          ? 'translate-x-[-100%] opacity-0' 
+                          : slideDirection === 'right' 
+                          ? 'translate-x-[100%] opacity-0' 
+                          : 'translate-x-0 opacity-100'
+                      }`}
                       style={{ maxWidth: 0 }}
                     >
                       <div className="truncate">{format(d.date, "MM/dd", { locale: ja })}</div>
@@ -580,7 +615,20 @@ export default function SchedulePage() {
                 </tr>
               </thead>
               <tbody>
-                {displayedLines.map((line) => {
+                {isLoadingData ? (
+                  <tr>
+                    <td colSpan={days.length + 1} className="text-center py-4 text-slate-400">
+                      データを読み込み中...
+                    </td>
+                  </tr>
+                ) : displayedLines.length === 0 ? (
+                  <tr>
+                    <td colSpan={days.length + 1} className="text-center py-4 text-slate-400">
+                      作業グループが登録されていません。案件登録ページで作業グループを設定してください。
+                    </td>
+                  </tr>
+                ) : (
+                  displayedLines.map((line) => {
                   const isSelected = filteredWorkLineId === line.id;
                   return (
                     <tr key={line.id} className={isSelected ? "bg-slate-800/30" : ""}>
@@ -604,35 +652,42 @@ export default function SchedulePage() {
                       return (
                         <td
                           key={iso}
-                          className="border-t border-l border-slate-800 align-top overflow-hidden"
+                          className={`border-t border-l border-slate-800 align-top overflow-hidden transition-all duration-300 ease-in-out ${
+                            slideDirection === 'left' 
+                              ? 'translate-x-[-100%] opacity-0' 
+                              : slideDirection === 'right' 
+                              ? 'translate-x-[100%] opacity-0' 
+                              : 'translate-x-0 opacity-100'
+                          }`}
                           style={{ maxWidth: 0 }}
                         >
-                          <div className="w-full h-16 px-1.5 py-1 flex flex-col gap-1 overflow-hidden">
-                            <div className="flex items-center justify-between text-[9px] text-slate-500 min-w-0">
-                              {locked && (
-                                <span className="inline-flex items-center gap-0.5 flex-shrink-0">
-                                  <span>🔒</span>
-                                  <span>確定</span>
-                                </span>
-                              )}
-                              {isAdmin && (
+                          <div className="w-full min-h-[100px] px-1.5 py-1.5 flex flex-col gap-1.5 overflow-hidden">
+                            {/* 案件名表示 */}
+                            {(() => {
+                              const project = getProjectForWorkLine(line.id, iso);
+                              return project ? (
                                 <button
                                   type="button"
-                                  onClick={() => toggleLock(line.id, iso)}
-                                  className="ml-auto px-1 py-0.5 rounded border border-slate-600 hover:bg-slate-800 text-[9px] flex-shrink-0 whitespace-nowrap"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedProject(project);
+                                    setShowProjectModal(true);
+                                  }}
+                                  className="text-[11px] text-accent font-semibold truncate bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded px-2 py-1 text-left w-full transition-colors flex-shrink-0"
+                                  title={`${project.siteName} - クリックで詳細を表示`}
                                 >
-                                  {locked ? "ロック解除" : "この日を確定"}
+                                  📋 {project.siteName}
                                 </button>
-                              )}
-                            </div>
-                            <button
-                              type="button"
+                              ) : null;
+                            })()}
+                          <button
+                            type="button"
                               onClick={() => {
                                 if (locked) return;
                                 openSelection(line.id, iso);
                               }}
                               disabled={locked}
-                              className={`w-full flex-1 px-1.5 py-1 text-left rounded min-w-0 overflow-hidden ${
+                              className={`w-full flex-1 px-1.5 py-1 text-left rounded min-w-0 overflow-hidden min-h-[40px] ${
                                 locked
                                   ? "bg-slate-900/40 text-slate-500 cursor-not-allowed"
                                   : "hover:bg-slate-800/60"
@@ -676,18 +731,106 @@ export default function SchedulePage() {
                                 })()}
                             </div>
                           </button>
+                          
+                            <div className="flex items-center justify-end text-[9px] text-slate-500 min-w-0 flex-shrink-0">
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleLock(line.id, iso);
+                                  }}
+                                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs transition-all hover:scale-110 flex-shrink-0 ${
+                                    locked
+                                      ? "bg-accent/20 text-accent border border-accent/50 hover:bg-accent/30"
+                                      : "bg-slate-800/60 text-slate-400 border border-slate-600 hover:bg-slate-700 hover:text-slate-200"
+                                  }`}
+                                  title={locked ? "ロック解除" : "この日を確定"}
+                                >
+                                  {locked ? "🔒" : "🔓"}
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </td>
                       );
                     })}
                   </tr>
                   );
-                })}
+                  })
+                )}
               </tbody>
             </table>
           </div>
         </Card>
       </div>
+
+      {/* 案件詳細モーダル */}
+      {showProjectModal && selectedProject && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowProjectModal(false)}>
+          <div className="w-[500px] rounded-xl bg-slate-900 border border-slate-700 shadow-lg p-6 text-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">案件詳細</h3>
+              <button
+                type="button"
+                onClick={() => setShowProjectModal(false)}
+                className="text-slate-400 hover:text-slate-100 text-xl"
+              >
+                ×
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">現場名</label>
+                <div className="text-sm font-semibold text-accent">{selectedProject.siteName}</div>
+              </div>
+              {selectedProject.title && selectedProject.title !== selectedProject.siteName && (
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">タイトル</label>
+                  <div className="text-sm">{selectedProject.title}</div>
+                </div>
+              )}
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">取引先会社名</label>
+                <div className="text-sm">{selectedProject.customerName}</div>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">契約形態</label>
+                <div className="text-sm">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded bg-slate-800">
+                    {selectedProject.contractType}
+                  </span>
+                </div>
+              </div>
+              {selectedProject.contractAmount && (
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">請負金額</label>
+                  <div className="text-sm">¥{selectedProject.contractAmount.toLocaleString()}</div>
+                </div>
+              )}
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">現場住所</label>
+                <div className="text-sm">{selectedProject.siteAddress}</div>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">工期</label>
+                <div className="text-sm">
+                  {format(new Date(selectedProject.startDate), "yyyy年MM月dd日", { locale: ja })} 〜 {format(new Date(selectedProject.endDate), "yyyy年MM月dd日", { locale: ja })}
+                </div>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowProjectModal(false)}
+                className="px-4 py-2 rounded-md bg-slate-800 border border-slate-700 text-xs hover:bg-slate-700"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {selection && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -697,7 +840,7 @@ export default function SchedulePage() {
                 <div className="text-sm font-semibold">人員選択</div>
                 <div className="text-[11px] text-slate-400 mt-0.5">
                   {selection.date} /{" "}
-                  {mockLines.find((l) => l.id === selection.workLineId)?.name}
+                  {workLines.find((l) => l.id === selection.workLineId)?.name}
                 </div>
               </div>
               <button
@@ -799,7 +942,7 @@ export default function SchedulePage() {
                   onChange={(e) => setModalWorkLineId(e.target.value)}
                 >
                   <option value="">選択してください</option>
-                  {mockLines.map((line) => (
+                  {workLines.map((line) => (
                     <option key={line.id} value={line.id}>
                       {line.name}
                     </option>
@@ -888,7 +1031,7 @@ export default function SchedulePage() {
           </div>
         </div>
       )}
-      </div>
+    </div>
     </AuthGuard>
   );
 }
