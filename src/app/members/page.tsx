@@ -181,30 +181,13 @@ export default function MembersPage() {
   return (
     <AuthGuard requireAdmin={true}>
     <div className="h-screen flex flex-col">
-      <header className="px-6 py-3 border-b border-theme-border flex items-center justify-between">
+      <header className="px-4 md:px-6 py-3 border-b border-theme-border flex items-center justify-between">
         <div className="flex items-baseline gap-4">
           <h1 className="text-lg font-semibold text-theme-text">メンバー管理</h1>
-          <span className="text-xs text-theme-text-muted">
-            作業メンバーの追加・編集・削除
-          </span>
         </div>
-          <div className="flex items-center gap-2 text-[11px]">
-            {profile && (
-              <>
-                <span className="px-2 py-0.5 rounded-full border border-theme-border text-theme-text">
-                  {profile.email}
-                </span>
-                <button
-                  onClick={signOut}
-                  className="px-2 py-0.5 rounded-full border border-theme-border text-theme-text hover:bg-slate-800 text-[10px]"
-                >
-                  ログアウト
-                </button>
-              </>
-            )}
-          </div>
       </header>
-      <div className="flex-1 overflow-hidden grid grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)] gap-4 p-4">
+      <div className="flex-1 overflow-auto p-3 md:p-4">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)]">
         <Card title={editingMember ? "メンバー編集" : "新規メンバー登録"}>
           <form className="space-y-4 text-sm" onSubmit={editingMember ? handleUpdate : handleSubmit}>
             <div>
@@ -249,7 +232,7 @@ export default function MembersPage() {
           </form>
         </Card>
         <Card title="メンバー一覧">
-          <div className="space-y-2 text-xs max-h-[calc(100vh-140px)] overflow-auto pr-1">
+          <div className="space-y-2 text-xs max-h-[calc(100vh-140px)] overflow-auto pr-1" style={{ scrollbarWidth: 'none' }}>
             {errors.submit && !isLoading && (
               <div className="mb-2 p-2 bg-red-900/20 border border-red-800 rounded-md">
                 <p className="text-xs text-red-400">{errors.submit}</p>
@@ -299,6 +282,7 @@ export default function MembersPage() {
             )}
           </div>
         </Card>
+        </div>
       </div>
 
       {/* Delete Confirmation Modal */}

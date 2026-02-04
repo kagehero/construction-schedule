@@ -34,6 +34,34 @@ const getMemberShortName = (name: string): string => {
   return name.slice(0, 2);
 };
 
+// 作業班名の省略表示用（スマートフォン向け）
+const getWorkLineShortName = (name: string): string => {
+  if (!name) return "";
+  // 「土木第1班」→「土木第」「電気A」→「電気A」など、先頭2文字を使用
+  return name.slice(0, 2);
+};
+
+const MOBILE_BREAKPOINT = 768;
+
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const update = () => {
+      // 768px 以下をスマートフォンレイアウトとして扱う
+      setIsMobile(window.innerWidth <= MOBILE_BREAKPOINT);
+    };
+
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  return isMobile;
+}
+
 // mockLinesは削除し、データベースから取得する
 
 const DAYS_VISIBLE_IN_VIEWPORT = 7; // 画面に表示する日数
@@ -92,6 +120,10 @@ export default function SchedulePage() {
   const [showProjectModal, setShowProjectModal] = useState(false);
 
   const { isAdmin, signOut, profile } = useAuth();
+  const isMobile = useIsMobile();
+  const [showMemberPickerMobile, setShowMemberPickerMobile] = useState(false);
+  const [showModalMemberPickerMobile, setShowModalMemberPickerMobile] = useState(false);
+  const [bulkCardExpandedMobile, setBulkCardExpandedMobile] = useState(false);
 
   // Load work lines, projects, and members from database
   useEffect(() => {
@@ -535,20 +567,9 @@ export default function SchedulePage() {
       <header className="px-6 py-3 border-b border-theme-border flex items-center justify-between">
         <div className="flex items-baseline gap-4">
           <h1 className="text-lg font-semibold text-theme-text">工程・人員配置</h1>
-          <span className="text-xs text-theme-text-muted">
-            工程 × 日付 × 人員を一画面で直感的に操作
-          </span>
-        </div>
-        <div className="flex items-center gap-2 text-[11px]">
-          <span className="px-2 py-0.5 rounded-full border border-theme-border text-theme-text">
-            ロール:{" "}
-            <span className="font-semibold">
-              {isAdmin ? "管理者（編集可）" : "閲覧者（閲覧のみ）"}
-            </span>
-          </span>
         </div>
       </header>
-      <div className="flex-1 overflow-hidden grid grid-rows-[auto_minmax(0,1fr)] gap-2 p-3">
+      <div className="flex-1 overflow-auto grid grid-rows-[auto_minmax(0,1fr)] gap-2 p-3">
         {/* ビューア用のフィルタリングカード */}
         {!isAdmin && (
           <Card title="工程表フィルター" className="text-xs">
@@ -618,10 +639,110 @@ export default function SchedulePage() {
             </div>
           </Card>
         )}
-        {/* 管理者用の期間まとめて配置カード */}
+        {/* 管理者用の期間まとめて配置カード（スマホではクリックで開閉） */}
         {isAdmin && (
+        isMobile ? (
+          <section className="rounded-xl bg-theme-card border border-theme-border text-theme-text shadow-sm text-xs overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setBulkCardExpandedMobile((v) => !v)}
+              className="flex items-center justify-between w-full px-4 py-3 text-left border-b border-theme-border hover:bg-theme-bg-elevated/50 transition-colors"
+              aria-expanded={bulkCardExpandedMobile}
+            >
+              <h2 className="text-sm font-semibold text-theme-text">期間まとめて配置 / 休み設定</h2>
+              <span
+                className={bulkCardExpandedMobile ? "rotate-180" : ""}
+                style={{ transition: "transform 0.2s ease" }}
+                aria-hidden
+              >
+                <svg className="w-5 h-5 text-theme-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </span>
+            </button>
+            <div
+              className="grid transition-[grid-template-rows] duration-200 ease-out"
+              style={{ gridTemplateRows: bulkCardExpandedMobile ? "1fr" : "0fr" }}
+            >
+              <div className="min-h-0 overflow-hidden">
+                <div className="p-4 pt-3 border-t-0 border-theme-border">
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <label className="block mb-1">作業班</label>
+                      <select
+                        className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-2 py-1.5 text-[11px]"
+                        value={selectedWorkLineId}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setSelectedWorkLineId(value);
+                          setFilteredWorkLineId(value);
+                        }}
+                      >
+                        <option value="">すべて表示</option>
+                        {workLines.map((line) => (
+                          <option key={line.id} value={line.id}>
+                            {line.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block mb-1">開始日</label>
+                      <input
+                        type="date"
+                        className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-2 py-1.5 text-[11px]"
+                        value={rangeStartDate}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setRangeStartDate(value);
+                          if (value) {
+                            const selectedDate = new Date(value);
+                            const dayOfWeek = selectedDate.getDay();
+                            const diff = selectedDate.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+                            const monday = new Date(selectedDate);
+                            monday.setDate(diff);
+                            monday.setHours(0, 0, 0, 0);
+                            setCurrentWeekStart(monday);
+                          }
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label className="block mb-1">終了日</label>
+                      <input
+                        type="date"
+                        className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-2 py-1.5 text-[11px]"
+                        value={rangeEndDate}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setRangeEndDate(value);
+                          if (value) {
+                            const selectedDate = new Date(value);
+                            const dayOfWeek = selectedDate.getDay();
+                            const diff = selectedDate.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+                            const monday = new Date(selectedDate);
+                            monday.setDate(diff);
+                            monday.setHours(0, 0, 0, 0);
+                            setCurrentWeekStart(monday);
+                          }
+                        }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={openBulkAssignModal}
+                      className="w-full inline-flex items-center justify-center px-4 py-2.5 rounded-md bg-accent text-xs font-medium hover:brightness-110"
+                    >
+                      期間まとめて配置
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : (
         <Card title="期間まとめて配置 / 休み設定" className="text-xs">
-          <div className="flex flex-wrap items-end gap-4">
+          <div className="flex flex-wrap items-end gap-2">
             <div>
               <label className="block mb-1">作業班</label>
               <select
@@ -645,7 +766,7 @@ export default function SchedulePage() {
               <label className="block mb-1">開始日</label>
               <input
                 type="date"
-                className="rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-2 py-1 text-[11px]"
+                className="rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-1 py-1 text-[11px]"
                 value={rangeStartDate}
                 onChange={(e) => {
                   const value = e.target.value;
@@ -667,7 +788,7 @@ export default function SchedulePage() {
               <label className="block mb-1">終了日</label>
               <input
                 type="date"
-                className="rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-2 py-1 text-[11px]"
+                className="rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-1 py-1 text-[11px]"
                 value={rangeEndDate}
                 onChange={(e) => {
                   const value = e.target.value;
@@ -685,44 +806,6 @@ export default function SchedulePage() {
                 }}
               />
             </div>
-            <div>
-              <label className="block mb-1">対象メンバー（複数選択）</label>
-              <div className="flex flex-wrap gap-1">
-                {members.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => toggleMember(m.id)}
-                    className={`px-2 py-1 rounded-full border text-[11px] ${
-                      selectedMemberIds.includes(m.id)
-                        ? "bg-accent border-accent text-white"
-                        : "bg-theme-bg-input border-theme-border text-theme-text"
-                    }`}
-                  >
-                    {m.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="block mb-1">確定休日（曜日）</label>
-              <div className="flex gap-1">
-                {["日", "月", "火", "水", "木", "金", "土"].map((label, i) => (
-                  <button
-                    key={label}
-                    type="button"
-                    onClick={() => toggleHolidayWeekday(i)}
-                    className={`w-7 h-7 rounded-full text-[11px] border ${
-                      holidayWeekdays.includes(i)
-                        ? "bg-theme-card text-theme-text border-theme-border"
-                        : "bg-theme-bg-input text-theme-text border-theme-border"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
             <div className="ml-auto pb-1">
               <button
                 type="button"
@@ -734,6 +817,7 @@ export default function SchedulePage() {
             </div>
           </div>
         </Card>
+        )
         )}
         <Card title="工程表" className="text-xs overflow-hidden">
           <div className="flex items-center gap-2 mb-2">
@@ -774,13 +858,13 @@ export default function SchedulePage() {
             style={{ 
               width: '100%',
               height: SCHEDULE_SCROLL_HEIGHT_PX,
-              scrollbarWidth: 'thin',
+              scrollbarWidth: 'none',
               scrollbarColor: '#475569 #1e293b'
             }}
           >
             <table className="border-collapse text-[11px] w-full" style={{ tableLayout: 'fixed', minHeight: '280px' }} cellPadding="0" cellSpacing="0">
               <colgroup>
-                <col style={{ width: '128px' }} />
+                <col style={{ width: isMobile ? '50px' : '100px' }} />
                 {days.map((_, index) => (
                   <col key={`col-${index}`} />
                 ))}
@@ -827,20 +911,39 @@ export default function SchedulePage() {
                   displayedLines.map((line) => {
                   const isSelected = filteredWorkLineId === line.id;
                   return (
-                    <tr key={line.id} className={isSelected ? "bg-theme-bg-elevated/30" : ""} style={{ height: '110px', lineHeight: '110px' }}>
-                      <td className={`sticky left-0 z-10 border-t border-r border-theme-border px-2 py-2 text-left align-top overflow-hidden ${
-                        isSelected ? "bg-theme-bg-elevated/50" : "bg-theme-bg-input/60"
-                      }`} style={{ height: '110px', maxHeight: '110px', verticalAlign: 'top', padding: '8px', lineHeight: 'normal' }}>
-                        <div className="flex items-center gap-2 min-w-0">
-                        <span
-                            className="inline-block w-1.5 h-8 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: line.color }}
-                        />
-                          <span className={`text-xs truncate text-theme-text ${isSelected ? "font-semibold" : ""}`}>
-                            {line.name}
+                    <tr
+                      key={line.id}
+                      className={isSelected ? "bg-theme-bg-elevated/30" : ""}
+                      style={{ height: '110px', lineHeight: '110px' }}
+                    >
+                      <td
+                        className={`sticky left-0 z-10 border-t border-r border-theme-border px-2 py-2 text-left align-top overflow-hidden ${
+                          isSelected ? "bg-theme-bg-elevated/50" : "bg-theme-bg-input/60"
+                        }`}
+                        style={{
+                          height: "110px",
+                          maxHeight: "110px",
+                          verticalAlign: "top",
+                          padding: "8px",
+                          lineHeight: "normal",
+                          minWidth: isMobile ? "50px" : "100px",
+                        }}
+                        title={line.name}
+                      >
+                        <div className="flex flex-col md:flex-row md:items-center items-start gap-1.5 min-w-0">
+                          <span
+                            className="inline-block w-2 h-6 md:h-8 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: line.color }}
+                          />
+                          <span
+                            className={`text-[11px] md:text-xs truncate text-theme-text ${
+                              isSelected ? "font-semibold" : ""
+                            }`}
+                          >
+                            {isMobile ? getWorkLineShortName(line.name) : line.name}
                           </span>
-                      </div>
-                    </td>
+                        </div>
+                      </td>
                     {days.map((d) => {
                       const iso = d.iso;
                       const cellAssignments = getCellAssignments(line.id, iso);
@@ -894,8 +997,8 @@ export default function SchedulePage() {
                               <div className="flex gap-1 min-w-0 items-center overflow-hidden" style={{ height: '100%', overflow: 'hidden' }}>
                                 {(() => {
                                   // 列の幅に応じて表示できる人数を計算（各バッジは約28px、gapは4px）
-                                  // 保守的に5人まで表示し、残りを数字で表示
-                                  const maxVisible = 5;
+                                  // 画面幅に応じて表示人数を調整（スマートフォンではより少なく表示）
+                                  const maxVisible = isMobile ? 2 : 5;
                                   const visibleAssignments = cellAssignments.slice(0, maxVisible);
                                   const remainingCount = cellAssignments.length - maxVisible;
                                   
@@ -1155,7 +1258,7 @@ export default function SchedulePage() {
               <div>
                 <label className="block mb-1 text-[11px] text-theme-text-muted-strong">作業班</label>
                 <select
-                  className="w-full rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-3 py-2 text-[11px]"
+                  className="w-full rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-1 py-1 text-[11px]"
                   value={modalWorkLineId}
                   onChange={(e) => setModalWorkLineId(e.target.value)}
                 >
@@ -1187,22 +1290,98 @@ export default function SchedulePage() {
               </div>
               <div>
                 <label className="block mb-1 text-[11px] text-theme-text-muted-strong">対象メンバー（複数選択可）</label>
-                <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto p-2 bg-theme-bg-elevated/50 rounded-md">
-                  {members.map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => toggleModalMember(m.id)}
-                      className={`px-2 py-1 rounded-full border text-[11px] ${
-                        modalMemberIds.includes(m.id)
-                          ? "bg-accent border-accent text-white"
-                          : "bg-theme-bg-input border-theme-border text-theme-text"
-                      }`}
-                    >
-                      {m.name}
-                    </button>
-                  ))}
-                </div>
+                {isMobile ? (
+                  <>
+                    {/* サマリー表示（2〜3名 + 残りは +数字） */}
+                    <div className="flex flex-wrap items-center gap-1 mb-1">
+                      {(() => {
+                        const selected = members.filter((m) =>
+                          modalMemberIds.includes(m.id)
+                        );
+                        const MAX_SUMMARY = 3;
+                        const summary = selected.slice(0, MAX_SUMMARY);
+                        const remaining = selected.length - summary.length;
+
+                        return (
+                          <>
+                            {summary.map((m) => (
+                              <button
+                                key={m.id}
+                                type="button"
+                                onClick={() => toggleModalMember(m.id)}
+                                title={m.name}
+                                className="px-2 py-1 rounded-full border border-theme-border bg-theme-bg-input text-theme-text text-[11px]"
+                              >
+                                {getMemberShortName(m.name)}
+                              </button>
+                            ))}
+                            {remaining > 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setShowModalMemberPickerMobile((prev) => !prev)
+                                }
+                                className="px-2 py-1 rounded-full border border-theme-border bg-theme-bg-elevated text-theme-text text-[11px]"
+                                title="他のメンバーを表示"
+                              >
+                                +{remaining}
+                              </button>
+                            )}
+                            {selected.length === 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setShowModalMemberPickerMobile((prev) => !prev)
+                                }
+                                className="px-2 py-1 rounded-full border border-theme-border bg-theme-bg-elevated text-theme-text text-[11px]"
+                              >
+                                メンバーを選択
+                              </button>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
+                    {/* 折りたたみ可能な全メンバー一覧 */}
+                    {showModalMemberPickerMobile && (
+                      <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto p-2 bg-theme-bg-elevated/50 rounded-md">
+                        {members.map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => toggleModalMember(m.id)}
+                            title={m.name}
+                            className={`px-2 py-1 rounded-full border text-[11px] ${
+                              modalMemberIds.includes(m.id)
+                                ? "bg-accent border-accent text-white"
+                                : "bg-theme-bg-input border-theme-border text-theme-text"
+                            }`}
+                          >
+                            {getMemberShortName(m.name)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto p-2 bg-theme-bg-elevated/50 rounded-md">
+                    {members.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => toggleModalMember(m.id)}
+                        title={m.name}
+                        className={`px-2 py-1 rounded-full border text-[11px] ${
+                          modalMemberIds.includes(m.id)
+                            ? "bg-accent border-accent text-white"
+                            : "bg-theme-bg-input border-theme-border text-theme-text"
+                        }`}
+                      >
+                        {m.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block mb-1 text-[11px] text-theme-text-muted-strong">確定休日（曜日）</label>

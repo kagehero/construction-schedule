@@ -13,7 +13,14 @@ const THEME_LIGHT = "light" as const; // 昼
 const THEME_DARK = "dark" as const;   // 夜
 type ThemeValue = typeof THEME_LIGHT | typeof THEME_DARK;
 
-function Sidebar() {
+type SidebarProps = {
+  onNavigate?: () => void;
+  /** 閉じるボタンを表示（モバイルオーバーレイ用） */
+  showCloseButton?: boolean;
+  onClose?: () => void;
+};
+
+function Sidebar({ onNavigate, showCloseButton, onClose }: SidebarProps) {
   const { signOut, profile, isAdmin, isViewer } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -36,6 +43,7 @@ function Sidebar() {
     try {
       await signOut();
       router.push('/login');
+      onNavigate?.();
     } catch (error) {
       console.error('Failed to sign out:', error);
     }
@@ -45,7 +53,7 @@ function Sidebar() {
   const adminMenuItems = [
     { href: '/dashboard', label: 'ダッシュボード' },
     { href: '/schedule', label: '工程・人員配置' },
-    { href: '/projects', label: '案件立ち上げ' },
+    { href: '/projects', label: '案件管理' },
     { href: '/members', label: 'メンバー管理' },
   ];
 
@@ -58,29 +66,45 @@ function Sidebar() {
   const menuItems = isAdmin ? adminMenuItems : viewerMenuItems;
 
   return (
-    <aside className="w-56 bg-theme-sidebar text-theme-text flex flex-col">
-      <div className="px-4 py-3 text-lg font-semibold border-b border-theme-border">
-        工程管理
+    <aside className="w-56 h-full min-h-0 bg-theme-sidebar text-theme-text flex flex-col">
+      <div className="flex items-center justify-between shrink-0 px-4 py-3 text-lg font-semibold border-b border-theme-border">
+        <span>工程管理</span>
+        {showCloseButton && (
+          <button
+            type="button"
+            onClick={onClose ?? onNavigate}
+            className="p-2 -mr-2 rounded-md text-theme-text-muted hover:bg-theme-bg-elevated hover:text-theme-text transition-colors"
+            aria-label="メニューを閉じる"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
-      <nav className="flex-1 px-2 py-4 space-y-2 text-sm">
+      <nav className="flex-1 min-h-0 overflow-y-auto px-2 py-4 space-y-2 text-sm">
         {menuItems.map((item) => {
           const isActive = pathname === item.href;
           return (
-            <a
+            <button
               key={item.href}
-              href={item.href}
-              className={`flex items-center gap-2 px-3 py-2 rounded-md transition-colors ${
+              type="button"
+              onClick={() => {
+                router.push(item.href);
+                onNavigate?.();
+              }}
+              className={`w-full text-left flex items-center gap-2 px-3 py-2 rounded-md transition-colors ${
                 isActive
                   ? 'bg-theme-bg-elevated text-theme-accent'
                   : 'hover:bg-theme-bg-elevated text-theme-text-muted'
               }`}
             >
               <span>{item.label}</span>
-            </a>
+            </button>
           );
         })}
       </nav>
-      <div className="px-2 py-4 border-t border-theme-border">
+      <div className="shrink-0 px-2 py-4 border-t border-theme-border">
         {profile && (
           <div className="px-3 py-2 mb-2 text-xs text-theme-text-muted">
             <div className="truncate">{profile.email}</div>
@@ -141,17 +165,111 @@ function Sidebar() {
 function LayoutContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isLoginPage = pathname === '/login';
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarClosing, setIsSidebarClosing] = useState(false);
+  const [isSidebarAnimatingIn, setIsSidebarAnimatingIn] = useState(false);
+
+  const openSidebar = () => {
+    setIsSidebarOpen(true);
+    setIsSidebarClosing(false);
+    setIsSidebarAnimatingIn(false);
+  };
+
+  const closeSidebar = () => {
+    setIsSidebarClosing(true);
+  };
+
+  const closeSidebarImmediate = () => {
+    setIsSidebarOpen(false);
+    setIsSidebarClosing(false);
+    setIsSidebarAnimatingIn(false);
+  };
+
+  // 開く: マウント後にスライドイン開始
+  useEffect(() => {
+    if (!isSidebarOpen || isSidebarClosing) return;
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setIsSidebarAnimatingIn(true));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [isSidebarOpen, isSidebarClosing]);
+
+  // 閉じる: アニメーション後に非表示
+  useEffect(() => {
+    if (!isSidebarClosing) return;
+    const t = setTimeout(closeSidebarImmediate, 280);
+    return () => clearTimeout(t);
+  }, [isSidebarClosing]);
 
   if (isLoginPage) {
     return <>{children}</>;
   }
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 bg-theme-main border-l border-theme-border">
-        {children}
-      </main>
+    <div className="flex min-h-screen bg-theme-main">
+      {/* デスクトップ用サイドバー */}
+      <div className="hidden md:flex">
+        <Sidebar />
+      </div>
+
+      {/* モバイル用スライドインサイドバー（画面高・アニメーション・閉じるボタン） */}
+      {isSidebarOpen && (
+        <div className="fixed inset-0 z-40 flex md:hidden">
+          <button
+            type="button"
+            className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
+              isSidebarClosing ? "opacity-0" : isSidebarAnimatingIn ? "opacity-100" : "opacity-0"
+            }`}
+            aria-label="メニューを閉じる"
+            onClick={closeSidebar}
+          />
+          <div
+            className={`relative flex flex-col h-screen w-56 shadow-xl transition-transform duration-200 ease-out ${
+              isSidebarClosing ? "-translate-x-full" : isSidebarAnimatingIn ? "translate-x-0" : "-translate-x-full"
+            }`}
+          >
+            <Sidebar
+              onNavigate={closeSidebar}
+              showCloseButton
+              onClose={closeSidebar}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* メインコンテンツ（モバイルヘッダー付き） */}
+      <div className="flex-1 flex flex-col">
+        {/* モバイル用ヘッダー */}
+        <header className="flex items-center justify-between px-4 py-3 border-b border-theme-border md:hidden">
+          <button
+            type="button"
+            className="p-2 rounded-md bg-theme-bg-elevated text-theme-text hover:bg-theme-bg-elevated-hover"
+            aria-label="メニューを開く"
+            onClick={openSidebar}
+          >
+            <svg
+              className="h-5 w-5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          </button>
+          <span className="text-sm font-semibold truncate">工程管理システム</span>
+          <span className="w-9" aria-hidden="true" />
+        </header>
+
+        <main className="flex-1 bg-theme-main md:border-l md:border-theme-border">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

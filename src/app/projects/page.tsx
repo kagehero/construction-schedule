@@ -351,30 +351,13 @@ export default function ProjectsPage() {
   return (
     <AuthGuard requireAdmin={true}>
     <div className="h-screen flex flex-col">
-      <header className="px-6 py-3 border-b border-theme-border flex items-center justify-between">
+      <header className="px-4 md:px-6 py-3 border-b border-theme-border flex items-center justify-between">
         <div className="flex items-baseline gap-4">
-          <h1 className="text-lg font-semibold text-theme-text">案件立ち上げ</h1>
-          <span className="text-xs text-theme-text-muted">
-            取引先・現場・契約情報の基本登録
-          </span>
+          <h1 className="text-lg font-semibold text-theme-text">案件管理</h1>
         </div>
-          <div className="flex items-center gap-2 text-[11px]">
-            {profile && (
-              <>
-                <span className="px-2 py-0.5 rounded-full border border-theme-border text-theme-text">
-                  {profile.email}
-                </span>
-                <button
-                  onClick={signOut}
-                  className="px-2 py-0.5 rounded-full border border-theme-border text-theme-text hover:bg-theme-bg-elevated text-[10px]"
-                >
-                  ログアウト
-                </button>
-              </>
-            )}
-          </div>
       </header>
-      <div className="flex-1 overflow-hidden grid grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)] gap-4 p-4">
+      <div className="flex-1 overflow-auto p-3 md:p-4">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)]">
         <Card title={editingProject ? "案件編集" : "新規案件登録"}>
           <form className="space-y-4 text-sm" onSubmit={editingProject ? handleUpdate : handleSubmit}>
             <div>
@@ -617,6 +600,7 @@ export default function ProjectsPage() {
             )}
           </div>
         </Card>
+        </div>
       </div>
 
       {/* Delete Confirmation Modal */}
