@@ -54,7 +54,46 @@ export default function ProjectsPage() {
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [workGroups, setWorkGroups] = useState<WorkGroupRow[]>([]);
+  const [showNewProjectForm, setShowNewProjectForm] = useState(false);
+  const [formModalClosing, setFormModalClosing] = useState(false);
+  const [formModalAnimatingIn, setFormModalAnimatingIn] = useState(false);
   const { isAdmin, signOut, profile } = useAuth();
+
+  const showForm = showNewProjectForm || !!editingProject;
+
+  // モーダル表示時: マウント後に開くアニメーション開始
+  useEffect(() => {
+    if (!showForm || formModalClosing) return;
+    setFormModalAnimatingIn(false);
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setFormModalAnimatingIn(true));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [showForm, formModalClosing]);
+
+  // モーダル閉じる: アニメーション後に状態クリア
+  useEffect(() => {
+    if (!formModalClosing) return;
+    const t = setTimeout(() => {
+      setEditingProject(null);
+      setShowNewProjectForm(false);
+      setFormModalClosing(false);
+      setFormModalAnimatingIn(false);
+      setForm({
+        title: "",
+        customerName: "",
+        siteName: "",
+        contractType: "請負",
+        contractAmount: null,
+        siteAddress: "",
+        startDate: "",
+        endDate: ""
+      });
+      setWorkGroups([]);
+      setErrors({});
+    }, 220);
+    return () => clearTimeout(t);
+  }, [formModalClosing]);
 
   // Load projects from database on mount
   useEffect(() => {
@@ -133,18 +172,7 @@ export default function ProjectsPage() {
       
       setProjects((prev) => [createdProject, ...prev]);
       toast.success("案件が登録されました。");
-      
-      setForm({
-        title: "",
-        customerName: "",
-        siteName: "",
-        contractType: "請負",
-        contractAmount: null,
-        siteAddress: "",
-        startDate: "",
-        endDate: ""
-      });
-      setWorkGroups([]);
+      setFormModalClosing(true);
     } catch (error) {
       console.error("Failed to create project:", error);
       setErrors({ 
@@ -257,23 +285,11 @@ export default function ProjectsPage() {
         }
       }
       
-      setProjects((prev) => 
+      setProjects((prev) =>
         prev.map((p) => (p.id === updatedProject.id ? updatedProject : p))
       );
       toast.success("案件が更新されました。");
-      
-      setEditingProject(null);
-      setForm({
-        title: "",
-        customerName: "",
-        siteName: "",
-        contractType: "請負",
-        contractAmount: null,
-        siteAddress: "",
-        startDate: "",
-        endDate: ""
-      });
-      setWorkGroups([]);
+      setFormModalClosing(true);
     } catch (error) {
       console.error("Failed to update project:", error);
       setErrors({ 
@@ -306,7 +322,12 @@ export default function ProjectsPage() {
   };
 
   const handleCancelEdit = () => {
+    setFormModalClosing(true);
+  };
+
+  const openNewProjectForm = () => {
     setEditingProject(null);
+    setShowNewProjectForm(true);
     setForm({
       title: "",
       customerName: "",
@@ -352,182 +373,16 @@ export default function ProjectsPage() {
     <AuthGuard requireAdmin={true}>
     <div className="h-screen flex flex-col">
       <header className="px-4 md:px-6 py-3 border-b border-theme-border flex items-center justify-between">
-        <div className="flex items-baseline gap-4">
-          <h1 className="text-lg font-semibold text-theme-text">案件管理</h1>
-        </div>
+        <h1 className="text-lg font-semibold text-theme-text">案件管理</h1>
+        <button
+          type="button"
+          onClick={openNewProjectForm}
+          className="inline-flex items-center px-4 py-2 rounded-md bg-accent text-theme-text text-sm font-medium hover:brightness-110"
+        >
+          新案件登録
+        </button>
       </header>
       <div className="flex-1 overflow-auto p-3 md:p-4">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)]">
-        <Card title={editingProject ? "案件編集" : "新規案件登録"}>
-          <form className="space-y-4 text-sm" onSubmit={editingProject ? handleUpdate : handleSubmit}>
-            <div>
-              <label className="block mb-1">取引先会社名</label>
-              <input
-                className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
-                value={form.customerName}
-                onChange={(e) => handleChange("customerName", e.target.value)}
-              />
-              {errors.customerName && (
-                <p className="mt-1 text-xs text-red-400">
-                  {errors.customerName}
-                </p>
-              )}
-            </div>
-            <div>
-              <label className="block mb-1">現場名</label>
-              <input
-                className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
-                value={form.siteName}
-                onChange={(e) => handleChange("siteName", e.target.value)}
-              />
-              {errors.siteName && (
-                <p className="mt-1 text-xs text-red-400">
-                  {errors.siteName}
-                </p>
-              )}
-            </div>
-            <div>
-              <label className="block mb-1">契約形態</label>
-              <select
-                className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
-                value={form.contractType}
-                onChange={(e) =>
-                  handleChange("contractType", e.target.value as ContractType)
-                }
-              >
-                <option value="請負">請負</option>
-                <option value="常用">常用</option>
-                <option value="追加工事">追加工事</option>
-              </select>
-            </div>
-            {isUkeoi && (
-              <div>
-                <label className="block mb-1">請負金額（管理者のみ表示想定）</label>
-                <input
-                  type="number"
-                  className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
-                  value={form.contractAmount ?? ""}
-                  onChange={(e) =>
-                    handleChange(
-                      "contractAmount",
-                      e.target.value ? Number(e.target.value) : null
-                    )
-                  }
-                />
-                {errors.contractAmount && (
-                  <p className="mt-1 text-xs text-red-400">
-                    {errors.contractAmount}
-                  </p>
-                )}
-              </div>
-            )}
-            <div>
-              <label className="block mb-1">現場住所</label>
-              <input
-                className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
-                value={form.siteAddress}
-                onChange={(e) => handleChange("siteAddress", e.target.value)}
-              />
-              {errors.siteAddress && (
-                <p className="mt-1 text-xs text-red-400">
-                  {errors.siteAddress}
-                </p>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block mb-1">工期開始日</label>
-                <input
-                  type="date"
-                  className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
-                  value={form.startDate}
-                  onChange={(e) => handleChange("startDate", e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block mb-1">工期終了日</label>
-                <input
-                  type="date"
-                  className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
-                  value={form.endDate}
-                  onChange={(e) => handleChange("endDate", e.target.value)}
-                />
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="block">作業班（ワークグループ）・班の色</label>
-                <button
-                  type="button"
-                  onClick={addWorkGroup}
-                  className="text-xs px-2 py-1 rounded border border-theme-border bg-theme-bg-elevated hover:bg-theme-bg-elevated-hover text-theme-text-muted-strong"
-                >
-                  + 追加
-                </button>
-              </div>
-              <p className="text-[11px] text-theme-text-muted mb-2">
-                班ごとの色は工程表の「班」列に表示されます。管理者が自由に変更できます。
-              </p>
-              <div className="space-y-2">
-                {workGroups.map((row, index) => (
-                  <div key={row.id ?? `new-${index}`} className="flex gap-2 items-center">
-                    <input
-                      type="color"
-                      className="w-9 h-9 rounded border border-theme-border cursor-pointer bg-theme-bg-elevated p-0.5"
-                      value={row.color || WORK_GROUP_DEFAULT_COLORS[0]}
-                      onChange={(e) => updateWorkGroupColor(index, e.target.value)}
-                      title="班の色"
-                    />
-                    <input
-                      type="text"
-                      className="flex-1 rounded-md bg-theme-bg-input border border-theme-border px-3 py-2"
-                      value={row.name}
-                      onChange={(e) => updateWorkGroupName(index, e.target.value)}
-                      placeholder="作業班名を入力"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeWorkGroup(index)}
-                      className="px-3 py-2 rounded-md border border-red-600 bg-theme-bg-elevated hover:bg-red-900/20 text-red-400 text-xs"
-                    >
-                      削除
-                    </button>
-                  </div>
-                ))}
-                {workGroups.length === 0 && (
-                  <p className="text-xs text-theme-text-muted">
-                    作業班を追加するには「+ 追加」ボタンをクリックしてください
-                  </p>
-                )}
-              </div>
-            </div>
-            {errors.submit && (
-              <p className="text-xs text-red-400">{errors.submit}</p>
-            )}
-            <div className="pt-2 flex gap-2">
-              {editingProject && (
-                <button
-                  type="button"
-                  onClick={handleCancelEdit}
-                  disabled={isSubmitting}
-                  className="inline-flex items-center px-4 py-2 rounded-md bg-theme-bg-elevated border border-theme-border text-white text-sm font-medium hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  キャンセル
-                </button>
-              )}
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="inline-flex items-center px-4 py-2 rounded-md bg-accent text-white text-sm font-medium hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSubmitting 
-                  ? (editingProject ? "更新中..." : "登録中...") 
-                  : (editingProject ? "更新" : "登録")
-                }
-              </button>
-            </div>
-          </form>
-        </Card>
         <Card title="案件一覧">
           <div className="space-y-2 text-xs max-h-[calc(100vh-140px)] overflow-auto pr-1">
             {errors.submit && !isLoading && (
@@ -600,8 +455,199 @@ export default function ProjectsPage() {
             )}
           </div>
         </Card>
-        </div>
       </div>
+
+      {/* 新規登録・編集モーダル（スマホ対応・開閉アニメーション） */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4">
+          <button
+            type="button"
+            className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
+              formModalClosing || !formModalAnimatingIn ? "opacity-0" : "opacity-100"
+            }`}
+            aria-label="閉じる"
+            onClick={handleCancelEdit}
+          />
+          <div
+            className={`relative w-full max-w-lg max-h-[100dvh] md:max-h-[90vh] flex flex-col bg-theme-card border border-theme-border rounded-none md:rounded-xl shadow-xl text-theme-text transition-all duration-200 ease-out ${
+              formModalClosing || !formModalAnimatingIn
+                ? "opacity-0 scale-95 translate-y-2"
+                : "opacity-100 scale-100 translate-y-0"
+            }`}
+          >
+            <div className="flex items-center justify-between shrink-0 px-4 py-3 border-b border-theme-border">
+              <h2 className="text-base font-semibold">
+                {editingProject ? "案件編集" : "新規案件登録"}
+              </h2>
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                className="p-2 -mr-2 rounded-md text-theme-text-muted hover:bg-theme-bg-elevated hover:text-theme-text"
+                aria-label="閉じる"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto p-4">
+              <form className="space-y-4 text-sm" onSubmit={editingProject ? handleUpdate : handleSubmit}>
+                <div>
+                  <label className="block mb-1">取引先会社名</label>
+                  <input
+                    className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                    value={form.customerName}
+                    onChange={(e) => handleChange("customerName", e.target.value)}
+                  />
+                  {errors.customerName && (
+                    <p className="mt-1 text-xs text-red-400">{errors.customerName}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block mb-1">現場名</label>
+                  <input
+                    className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                    value={form.siteName}
+                    onChange={(e) => handleChange("siteName", e.target.value)}
+                  />
+                  {errors.siteName && (
+                    <p className="mt-1 text-xs text-red-400">{errors.siteName}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block mb-1">契約形態</label>
+                  <select
+                    className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                    value={form.contractType}
+                    onChange={(e) => handleChange("contractType", e.target.value as ContractType)}
+                  >
+                    <option value="請負">請負</option>
+                    <option value="常用">常用</option>
+                    <option value="追加工事">追加工事</option>
+                  </select>
+                </div>
+                {isUkeoi && (
+                  <div>
+                    <label className="block mb-1">請負金額（管理者のみ表示想定）</label>
+                    <input
+                      type="number"
+                      className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                      value={form.contractAmount ?? ""}
+                      onChange={(e) =>
+                        handleChange("contractAmount", e.target.value ? Number(e.target.value) : null)
+                      }
+                    />
+                    {errors.contractAmount && (
+                      <p className="mt-1 text-xs text-red-400">{errors.contractAmount}</p>
+                    )}
+                  </div>
+                )}
+                <div>
+                  <label className="block mb-1">現場住所</label>
+                  <input
+                    className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                    value={form.siteAddress}
+                    onChange={(e) => handleChange("siteAddress", e.target.value)}
+                  />
+                  {errors.siteAddress && (
+                    <p className="mt-1 text-xs text-red-400">{errors.siteAddress}</p>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block mb-1">工期開始日</label>
+                    <input
+                      type="date"
+                      className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                      value={form.startDate}
+                      onChange={(e) => handleChange("startDate", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block mb-1">工期終了日</label>
+                    <input
+                      type="date"
+                      className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                      value={form.endDate}
+                      onChange={(e) => handleChange("endDate", e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block">作業班（ワークグループ）・班の色</label>
+                    <button
+                      type="button"
+                      onClick={addWorkGroup}
+                      className="text-xs px-2 py-1.5 rounded border border-theme-border bg-theme-bg-elevated hover:bg-theme-bg-elevated-hover text-theme-text-muted-strong"
+                    >
+                      + 追加
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-theme-text-muted mb-2">
+                    班ごとの色は工程表の「班」列に表示されます。
+                  </p>
+                  <div className="space-y-2">
+                    {workGroups.map((row, index) => (
+                      <div key={row.id ?? `new-${index}`} className="flex gap-2 items-center">
+                        <input
+                          type="color"
+                          className="w-9 h-9 rounded border border-theme-border cursor-pointer bg-theme-bg-elevated p-0.5 flex-shrink-0"
+                          value={row.color || WORK_GROUP_DEFAULT_COLORS[0]}
+                          onChange={(e) => updateWorkGroupColor(index, e.target.value)}
+                          title="班の色"
+                        />
+                        <input
+                          type="text"
+                          className="flex-1 min-w-0 rounded-md bg-theme-bg-input border border-theme-border px-3 py-2"
+                          value={row.name}
+                          onChange={(e) => updateWorkGroupName(index, e.target.value)}
+                          placeholder="作業班名を入力"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeWorkGroup(index)}
+                          className="px-3 py-2 rounded-md border border-red-600 bg-theme-bg-elevated hover:bg-red-900/20 text-red-400 text-xs flex-shrink-0"
+                        >
+                          削除
+                        </button>
+                      </div>
+                    ))}
+                    {workGroups.length === 0 && (
+                      <p className="text-xs text-theme-text-muted">
+                        「+ 追加」で作業班を追加してください
+                      </p>
+                    )}
+                  </div>
+                </div>
+                {errors.submit && (
+                  <p className="text-xs text-red-400">{errors.submit}</p>
+                )}
+                <div className="pt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCancelEdit}
+                    disabled={isSubmitting}
+                    className="inline-flex items-center px-4 py-2.5 rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text text-sm font-medium hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    キャンセル
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="inline-flex items-center px-4 py-2.5 rounded-md bg-accent text-theme-text text-sm font-medium hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSubmitting
+                      ? (editingProject ? "更新中..." : "登録中...")
+                      : (editingProject ? "更新" : "登録")
+                    }
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete Confirmation Modal */}
       {deletingProjectId && (
