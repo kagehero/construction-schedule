@@ -286,12 +286,17 @@ export default function SchedulePage() {
     });
   }, [currentWeekStart]);
 
+  /** 日付が今日より前（過去）なら true（過去日は自動ロック対象） */
+  const isPastDate = (iso: string) => iso < format(new Date(), "yyyy-MM-dd");
+
   const isCellLocked = (workLineId: string, iso: string) =>
+    isPastDate(iso) ||
     dayStatuses.some(
       (s) => s.workLineId === workLineId && s.date === iso && s.isLocked
     );
 
   const toggleLock = (workLineId: string, iso: string) => {
+    if (isPastDate(iso)) return;
     if (!isAdmin) {
       toast.error('この操作は管理者のみ実行できます。閲覧者権限では編集操作はできません。');
       return;
@@ -1039,14 +1044,17 @@ export default function SchedulePage() {
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    toggleLock(line.id, iso);
+                                    if (!isPastDate(iso)) toggleLock(line.id, iso);
                                   }}
-                                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs transition-all hover:scale-110 flex-shrink-0 ${
-                                    locked
-                                      ? "bg-accent/20 text-accent border border-accent/50 hover:bg-accent/30"
-                                      : "bg-theme-bg-elevated/60 text-theme-text-muted border border-theme-border hover:bg-theme-bg-elevated-hover hover:text-theme-text"
+                                  disabled={isPastDate(iso)}
+                                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs transition-all flex-shrink-0 ${
+                                    isPastDate(iso)
+                                      ? "bg-theme-bg-elevated/60 text-theme-text-muted border border-theme-border cursor-default"
+                                      : locked
+                                        ? "bg-accent/20 text-accent border border-accent/50 hover:scale-110 hover:bg-accent/30"
+                                        : "bg-theme-bg-elevated/60 text-theme-text-muted border border-theme-border hover:scale-110 hover:bg-theme-bg-elevated-hover hover:text-theme-text"
                                   }`}
-                                  title={locked ? "ロック解除" : "この日を確定"}
+                                  title={isPastDate(iso) ? "過去のため編集不可" : locked ? "ロック解除" : "この日を確定"}
                                   style={{ flexShrink: 0 }}
                                 >
                                   {locked ? "🔒" : "🔓"}
