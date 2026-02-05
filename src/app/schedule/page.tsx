@@ -983,19 +983,18 @@ export default function SchedulePage() {
                     <tr
                       key={line.id}
                       className={isSelected ? "bg-theme-bg-elevated/30" : ""}
-                      style={{ height: '110px', lineHeight: '110px' }}
+                      style={{ minHeight: '110px' }}
                     >
                       <td
                         className={`sticky left-0 z-10 border-t border-r border-theme-border px-2 py-2 text-left align-top overflow-hidden ${
                           isSelected ? "bg-theme-bg-elevated/50" : "bg-theme-bg-input/60"
                         }`}
                         style={{
-                          height: "110px",
-                          maxHeight: "110px",
                           verticalAlign: "top",
                           padding: "8px",
                           lineHeight: "normal",
                           minWidth: isMobile ? "50px" : "100px",
+                          minHeight: "110px",
                         }}
                         title={line.name}
                       >
@@ -1030,9 +1029,9 @@ export default function SchedulePage() {
                               ? 'translate-x-[100%] opacity-0' 
                               : 'translate-x-0 opacity-100'
                           }`}
-                          style={{ maxWidth: 0, height: '110px', maxHeight: '110px', verticalAlign: 'top', padding: 0, lineHeight: 'normal' }}
+                          style={{ maxWidth: 0, verticalAlign: 'top', padding: 0, lineHeight: 'normal' }}
                         >
-                          <div className="w-full h-full px-1.5 py-1.5 flex flex-col gap-1 overflow-hidden" style={{ height: '110px', maxHeight: '110px', minHeight: '110px', boxSizing: 'border-box', overflow: 'hidden' }}>
+                          <div className="w-full px-1.5 py-1.5 flex flex-col gap-1" style={{ minHeight: '110px', boxSizing: 'border-box' }}>
                             {/* 案件名表示 */}
                             {project ? (
                                 <button
@@ -1062,15 +1061,20 @@ export default function SchedulePage() {
                                   ? "bg-theme-bg-input/40 text-theme-text-muted cursor-not-allowed"
                                   : "hover:bg-theme-bg-elevated/60"
                               }`}
-                              style={{ height: '40px', minHeight: '40px', maxHeight: '40px', flexShrink: 0, overflow: 'hidden' }}
+                              style={{ minHeight: '40px', flexShrink: 0 }}
                           >
-                              <div className="flex gap-1 min-w-0 items-center overflow-hidden" style={{ height: '100%', overflow: 'hidden' }}>
+                              <div className="flex flex-wrap gap-1 min-w-0 items-center">
                                 {(() => {
                                   // 列の幅に応じて表示できる人数を計算（各バッジは約28px、gapは4px）
                                   // 画面幅に応じて表示人数を調整（スマートフォンではより少なく表示）
                                   const maxVisible = isMobile ? 2 : 5;
-                                  const visibleAssignments = cellAssignments.slice(0, maxVisible);
-                                  const remainingCount = cellAssignments.length - maxVisible;
+                                  const showAll = cellAssignments.length >= 10;
+                                  const visibleAssignments = showAll
+                                    ? cellAssignments
+                                    : cellAssignments.slice(0, maxVisible);
+                                  const remainingCount = showAll
+                                    ? 0
+                                    : cellAssignments.length - maxVisible;
                                   
                                   return (
                                     <>
