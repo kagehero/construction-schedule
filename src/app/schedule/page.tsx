@@ -124,6 +124,70 @@ export default function SchedulePage() {
   const [showMemberPickerMobile, setShowMemberPickerMobile] = useState(false);
   const [showModalMemberPickerMobile, setShowModalMemberPickerMobile] = useState(false);
   const [bulkCardExpandedMobile, setBulkCardExpandedMobile] = useState(false);
+  const [projectModalClosing, setProjectModalClosing] = useState(false);
+  const [projectModalAnimatingIn, setProjectModalAnimatingIn] = useState(false);
+  const [selectionModalClosing, setSelectionModalClosing] = useState(false);
+  const [selectionModalAnimatingIn, setSelectionModalAnimatingIn] = useState(false);
+  const [bulkAssignModalClosing, setBulkAssignModalClosing] = useState(false);
+  const [bulkAssignModalAnimatingIn, setBulkAssignModalAnimatingIn] = useState(false);
+
+  // 案件詳細モーダル: 開閉アニメーション
+  useEffect(() => {
+    if (!showProjectModal || !selectedProject || projectModalClosing) return;
+    setProjectModalAnimatingIn(false);
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setProjectModalAnimatingIn(true));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [showProjectModal, selectedProject, projectModalClosing]);
+  useEffect(() => {
+    if (!projectModalClosing) return;
+    const t = setTimeout(() => {
+      setShowProjectModal(false);
+      setSelectedProject(null);
+      setProjectModalClosing(false);
+      setProjectModalAnimatingIn(false);
+    }, 220);
+    return () => clearTimeout(t);
+  }, [projectModalClosing]);
+
+  // 人員選択モーダル: 開閉アニメーション
+  useEffect(() => {
+    if (!selection || selectionModalClosing) return;
+    setSelectionModalAnimatingIn(false);
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setSelectionModalAnimatingIn(true));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [selection, selectionModalClosing]);
+  useEffect(() => {
+    if (!selectionModalClosing) return;
+    const t = setTimeout(() => {
+      setSelection(null);
+      setSelectionModalClosing(false);
+      setSelectionModalAnimatingIn(false);
+    }, 220);
+    return () => clearTimeout(t);
+  }, [selectionModalClosing]);
+
+  // 期間まとめて配置モーダル: 開閉アニメーション
+  useEffect(() => {
+    if (!showBulkAssignModal || bulkAssignModalClosing) return;
+    setBulkAssignModalAnimatingIn(false);
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setBulkAssignModalAnimatingIn(true));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [showBulkAssignModal, bulkAssignModalClosing]);
+  useEffect(() => {
+    if (!bulkAssignModalClosing) return;
+    const t = setTimeout(() => {
+      setShowBulkAssignModal(false);
+      setBulkAssignModalClosing(false);
+      setBulkAssignModalAnimatingIn(false);
+    }, 220);
+    return () => clearTimeout(t);
+  }, [bulkAssignModalClosing]);
 
   // Load work lines, projects, and members from database
   useEffect(() => {
@@ -334,6 +398,7 @@ export default function SchedulePage() {
       toast.error('この操作は管理者のみ実行できます。閲覧者権限では編集操作はできません。');
       return;
     }
+    setSelectionModalClosing(false);
     setSelection({ workLineId, date: iso });
     const current = assignments.filter(
       (a) => a.workLineId === workLineId && a.date === iso && !a.isHoliday
@@ -403,7 +468,7 @@ export default function SchedulePage() {
       }
       
       toast.success("メンバーの割り当てを保存しました。");
-      setSelection(null);
+      setSelectionModalClosing(true);
     } catch (error: any) {
       console.error("Failed to save assignments:", error);
       const errorMessage = error?.message || error?.details || "メンバーの割り当ての保存に失敗しました。";
@@ -488,6 +553,7 @@ export default function SchedulePage() {
   };
 
   const openBulkAssignModal = () => {
+    setBulkAssignModalClosing(false);
     setShowBulkAssignModal(true);
     // モーダルを開くときに現在の値を初期値として設定
     setModalWorkLineId(selectedWorkLineId);
@@ -500,9 +566,7 @@ export default function SchedulePage() {
     setModalHolidayWeekdays([...holidayWeekdays]);
   };
 
-  const closeBulkAssignModal = () => {
-    setShowBulkAssignModal(false);
-  };
+  const closeBulkAssignModal = () => setBulkAssignModalClosing(true);
 
   const applyBulkAssignFromModal = () => {
     handleBulkAssign(
@@ -975,6 +1039,7 @@ export default function SchedulePage() {
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
+                                    setProjectModalClosing(false);
                                     setSelectedProject(project);
                                     setShowProjectModal(true);
                                   }}
@@ -1094,15 +1159,30 @@ export default function SchedulePage() {
         </Card>
       </div>
 
-      {/* 案件詳細モーダル */}
+      {/* 案件詳細モーダル（開閉アニメーション） */}
       {showProjectModal && selectedProject && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowProjectModal(false)}>
-          <div className="w-[500px] rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg p-6 text-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
+              projectModalClosing || !projectModalAnimatingIn ? "opacity-0" : "opacity-100"
+            }`}
+            aria-label="閉じる"
+            onClick={() => setProjectModalClosing(true)}
+          />
+          <div
+            className={`relative w-full max-w-[500px] rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg p-6 text-sm transition-all duration-200 ease-out ${
+              projectModalClosing || !projectModalAnimatingIn
+                ? "opacity-0 scale-95 translate-y-2"
+                : "opacity-100 scale-100 translate-y-0"
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-theme-text">案件詳細</h3>
               <button
                 type="button"
-                onClick={() => setShowProjectModal(false)}
+                onClick={() => setProjectModalClosing(true)}
                 className="text-theme-text-muted hover:text-theme-text text-xl leading-none"
               >
                 ×
@@ -1151,7 +1231,7 @@ export default function SchedulePage() {
             <div className="mt-6 flex justify-end">
               <button
                 type="button"
-                onClick={() => setShowProjectModal(false)}
+                onClick={() => setProjectModalClosing(true)}
                 className="px-4 py-2 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover"
               >
                 閉じる
@@ -1162,8 +1242,22 @@ export default function SchedulePage() {
       )}
 
       {selection && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="w-[420px] rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg p-4 text-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
+              selectionModalClosing || !selectionModalAnimatingIn ? "opacity-0" : "opacity-100"
+            }`}
+            aria-label="閉じる"
+            onClick={() => setSelectionModalClosing(true)}
+          />
+          <div
+            className={`relative w-full max-w-[420px] rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg p-4 text-xs transition-all duration-200 ease-out ${
+              selectionModalClosing || !selectionModalAnimatingIn
+                ? "opacity-0 scale-95 translate-y-2"
+                : "opacity-100 scale-100 translate-y-0"
+            }`}
+          >
             <div className="flex items-center justify-between mb-3">
               <div>
                 <div className="text-sm font-semibold">人員選択</div>
@@ -1174,7 +1268,7 @@ export default function SchedulePage() {
               </div>
               <button
                 type="button"
-                onClick={() => setSelection(null)}
+                onClick={() => setSelectionModalClosing(true)}
                 className="text-theme-text-muted hover:text-theme-text text-sm"
               >
                 ×
@@ -1226,7 +1320,7 @@ export default function SchedulePage() {
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setSelection(null)}
+                  onClick={() => setSelectionModalClosing(true)}
                   className="px-3 py-1 rounded-md border border-theme-border text-[11px]"
                 >
                   キャンセル
@@ -1245,8 +1339,22 @@ export default function SchedulePage() {
       )}
 
       {showBulkAssignModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="w-[500px] rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg p-4 text-xs max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
+              bulkAssignModalClosing || !bulkAssignModalAnimatingIn ? "opacity-0" : "opacity-100"
+            }`}
+            aria-label="閉じる"
+            onClick={closeBulkAssignModal}
+          />
+          <div
+            className={`relative w-full max-w-[500px] max-h-[90vh] overflow-y-auto rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg p-4 text-xs transition-all duration-200 ease-out ${
+              bulkAssignModalClosing || !bulkAssignModalAnimatingIn
+                ? "opacity-0 scale-95 translate-y-2"
+                : "opacity-100 scale-100 translate-y-0"
+            }`}
+          >
             <div className="flex items-center justify-between mb-4">
               <div>
                 <div className="text-sm font-semibold">期間まとめて配置</div>

@@ -26,7 +26,30 @@ export default function MembersPage() {
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [deletingMemberId, setDeletingMemberId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteModalClosing, setDeleteModalClosing] = useState(false);
+  const [deleteModalAnimatingIn, setDeleteModalAnimatingIn] = useState(false);
   const { isAdmin, signOut, profile } = useAuth();
+
+  // 削除確認モーダル: 開くアニメーション
+  useEffect(() => {
+    if (!deletingMemberId || deleteModalClosing) return;
+    setDeleteModalAnimatingIn(false);
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setDeleteModalAnimatingIn(true));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [deletingMemberId, deleteModalClosing]);
+
+  // 削除確認モーダル: 閉じるアニメーション後にクリア
+  useEffect(() => {
+    if (!deleteModalClosing) return;
+    const t = setTimeout(() => {
+      setDeletingMemberId(null);
+      setDeleteModalClosing(false);
+      setDeleteModalAnimatingIn(false);
+    }, 220);
+    return () => clearTimeout(t);
+  }, [deleteModalClosing]);
 
   // Load members from database on mount
   useEffect(() => {
@@ -151,7 +174,10 @@ export default function MembersPage() {
 
   const handleDeleteClick = (memberId: string) => {
     setDeletingMemberId(memberId);
+    setDeleteModalClosing(false);
   };
+
+  const closeDeleteModal = () => setDeleteModalClosing(true);
 
   const handleDeleteConfirm = async () => {
     if (!deletingMemberId) return;
@@ -160,7 +186,7 @@ export default function MembersPage() {
     try {
       await deleteMember(deletingMemberId);
       setMembers((prev) => prev.filter((m) => m.id !== deletingMemberId));
-      setDeletingMemberId(null);
+      setDeleteModalClosing(true);
       toast.success("メンバーが削除されました。");
     } catch (error: any) {
       console.error("Failed to delete member:", error);
@@ -285,10 +311,24 @@ export default function MembersPage() {
         </div>
       </div>
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation Modal（開閉アニメーション） */}
       {deletingMemberId && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="w-[400px] rounded-xl bg-theme-bg-input border border-theme-border shadow-lg p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
+              deleteModalClosing || !deleteModalAnimatingIn ? "opacity-0" : "opacity-100"
+            }`}
+            aria-label="閉じる"
+            onClick={closeDeleteModal}
+          />
+          <div
+            className={`relative w-full max-w-[400px] rounded-xl bg-theme-bg-input border border-theme-border shadow-lg p-4 text-theme-text transition-all duration-200 ease-out ${
+              deleteModalClosing || !deleteModalAnimatingIn
+                ? "opacity-0 scale-95 translate-y-2"
+                : "opacity-100 scale-100 translate-y-0"
+            }`}
+          >
             <div className="mb-4">
               <h3 className="text-sm font-semibold mb-2 text-theme-text">メンバーの削除</h3>
               <p className="text-xs text-theme-text-muted">
@@ -302,7 +342,7 @@ export default function MembersPage() {
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setDeletingMemberId(null)}
+                onClick={closeDeleteModal}
                 disabled={isDeleting}
                 className="px-4 py-2 rounded-md border border-theme-border text-theme-text text-xs hover:bg-theme-bg-elevated disabled:opacity-50 disabled:cursor-not-allowed"
               >
