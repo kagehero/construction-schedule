@@ -1,5 +1,11 @@
-import { addDays, eachDayOfInterval } from "date-fns";
+import { eachDayOfInterval, format } from "date-fns";
 import { Assignment } from "./types";
+
+/** "yyyy-MM-dd" をローカル時刻の日付としてパース（タイムゾーンずれ防止） */
+function parseLocalDate(dateStr: string): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
 
 interface BulkAssignParams {
   workLineId: string;
@@ -16,15 +22,15 @@ export function createAssignmentsForRange(
     params;
 
   const days = eachDayOfInterval({
-    start: new Date(startDate),
-    end: new Date(endDate)
+    start: parseLocalDate(startDate),
+    end: parseLocalDate(endDate)
   });
 
   const result: Assignment[] = [];
 
   for (const day of days) {
     const weekday = day.getDay();
-    const iso = day.toISOString().slice(0, 10);
+    const iso = format(day, "yyyy-MM-dd");
 
     const isHoliday = holidayWeekdays.includes(weekday);
 

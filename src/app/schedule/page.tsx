@@ -281,7 +281,7 @@ export default function SchedulePage() {
       const d = addDays(currentWeekStart, i);
       return {
         date: d,
-        iso: d.toISOString().slice(0, 10)
+        iso: format(d, "yyyy-MM-dd")
       };
     });
   }, [currentWeekStart]);
