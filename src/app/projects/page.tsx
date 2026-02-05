@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { format } from "date-fns";
 import { z } from "zod";
 import type { ContractType, Project } from "@/domain/projects/types";
 import { Card } from "@/components/ui/card";
@@ -35,6 +36,14 @@ type WorkGroupRow = { id?: string; name: string; color: string };
 
 const WORK_GROUP_DEFAULT_COLORS = ["#3b82f6", "#f97316", "#22c55e", "#eab308", "#a855f7", "#ef4444", "#06b6d4"];
 
+/** 工期（開始日・終了日）からステータスを判定 */
+function getProjectStatus(project: Project): "未施工" | "施工中" | "完工" {
+  const today = format(new Date(), "yyyy-MM-dd");
+  if (today < project.startDate) return "未施工";
+  if (today > project.endDate) return "完工";
+  return "施工中";
+}
+
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [form, setForm] = useState<FormState>({
@@ -57,6 +66,8 @@ export default function ProjectsPage() {
   const [showNewProjectForm, setShowNewProjectForm] = useState(false);
   const [formModalClosing, setFormModalClosing] = useState(false);
   const [formModalAnimatingIn, setFormModalAnimatingIn] = useState(false);
+  const [deleteModalClosing, setDeleteModalClosing] = useState(false);
+  const [deleteModalAnimatingIn, setDeleteModalAnimatingIn] = useState(false);
   const { isAdmin, signOut, profile } = useAuth();
 
   const showForm = showNewProjectForm || !!editingProject;
@@ -94,6 +105,27 @@ export default function ProjectsPage() {
     }, 220);
     return () => clearTimeout(t);
   }, [formModalClosing]);
+
+  // 削除確認モーダル: 開くアニメーション
+  useEffect(() => {
+    if (!deletingProjectId || deleteModalClosing) return;
+    setDeleteModalAnimatingIn(false);
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setDeleteModalAnimatingIn(true));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [deletingProjectId, deleteModalClosing]);
+
+  // 削除確認モーダル: 閉じるアニメーション後にクリア
+  useEffect(() => {
+    if (!deleteModalClosing) return;
+    const t = setTimeout(() => {
+      setDeletingProjectId(null);
+      setDeleteModalClosing(false);
+      setDeleteModalAnimatingIn(false);
+    }, 220);
+    return () => clearTimeout(t);
+  }, [deleteModalClosing]);
 
   // Load projects from database on mount
   useEffect(() => {
@@ -303,7 +335,10 @@ export default function ProjectsPage() {
 
   const handleDeleteClick = (projectId: string) => {
     setDeletingProjectId(projectId);
+    setDeleteModalClosing(false);
   };
+
+  const closeDeleteModal = () => setDeleteModalClosing(true);
 
   const handleDeleteConfirm = async () => {
     if (!deletingProjectId) return;
@@ -312,7 +347,7 @@ export default function ProjectsPage() {
     try {
       await deleteProject(deletingProjectId);
       setProjects((prev) => prev.filter((p) => p.id !== deletingProjectId));
-      setDeletingProjectId(null);
+      setDeleteModalClosing(true);
     } catch (error) {
       console.error("Failed to delete project:", error);
       alert("案件の削除に失敗しました。もう一度お試しください。");
@@ -402,12 +437,24 @@ export default function ProjectsPage() {
                 key={p.id}
                 className="rounded-lg border border-theme-border bg-theme-bg-input text-theme-text px-3 py-2"
               >
-                <div className="flex items-center justify-between">
-                  <div className="font-semibold">{p.siteName}</div>
-                  <div className="flex items-center gap-2">
-                  <div className="text-[10px] text-theme-text-muted">
-                    {p.startDate} ~ {p.endDate}
-                    </div>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="font-semibold min-w-0">{p.siteName}</div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                  <span
+                    className={`text-[10px] font-medium px-2 py-0.5 rounded ${
+                      getProjectStatus(p) === "未施工"
+                        ? "bg-sky-500/20 text-sky-400 border border-sky-500/40"
+                        : getProjectStatus(p) === "施工中"
+                          ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
+                          : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+                    }`}
+                    title={`工期: ${p.startDate} ～ ${p.endDate}`}
+                  >
+                    {getProjectStatus(p)}
+                  </span>
+                  <span className="text-[10px] text-theme-text-muted whitespace-nowrap">
+                    {p.startDate}～{p.endDate}
+                  </span>
                     <div className="flex gap-1">
                       <button
                         type="button"
@@ -649,10 +696,24 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation Modal（開閉アニメーション） */}
       {deletingProjectId && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="w-[400px] rounded-xl bg-theme-bg-input border border-theme-border shadow-lg p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
+              deleteModalClosing || !deleteModalAnimatingIn ? "opacity-0" : "opacity-100"
+            }`}
+            aria-label="閉じる"
+            onClick={closeDeleteModal}
+          />
+          <div
+            className={`relative w-full max-w-[400px] rounded-xl bg-theme-bg-input border border-theme-border shadow-lg p-4 text-theme-text transition-all duration-200 ease-out ${
+              deleteModalClosing || !deleteModalAnimatingIn
+                ? "opacity-0 scale-95 translate-y-2"
+                : "opacity-100 scale-100 translate-y-0"
+            }`}
+          >
             <div className="mb-4">
               <h3 className="text-sm font-semibold mb-2 text-theme-text">案件の削除</h3>
               <p className="text-xs text-theme-text-muted">
@@ -662,7 +723,7 @@ export default function ProjectsPage() {
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setDeletingProjectId(null)}
+                onClick={closeDeleteModal}
                 disabled={isDeleting}
                 className="px-4 py-2 rounded-md border border-theme-border text-theme-text text-xs hover:bg-theme-bg-elevated disabled:opacity-50 disabled:cursor-not-allowed"
               >
