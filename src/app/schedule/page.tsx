@@ -1252,7 +1252,7 @@ export default function SchedulePage() {
             onClick={() => setSelectionModalClosing(true)}
           />
           <div
-            className={`relative w-full max-w-[420px] rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg p-4 text-xs transition-all duration-200 ease-out ${
+            className={`relative w-full max-w-[420px] min-h-[280px] rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg p-4 text-xs transition-all duration-200 ease-out ${
               selectionModalClosing || !selectionModalAnimatingIn
                 ? "opacity-0 scale-95 translate-y-2"
                 : "opacity-100 scale-100 translate-y-0"
@@ -1300,21 +1300,34 @@ export default function SchedulePage() {
                 <div className="mb-1 text-[11px] text-theme-text-muted-strong">
                   確定休日（曜日）
                 </div>
+                <p className="text-[10px] text-theme-text-muted mb-1.5">
+                  選択した曜日は休日として登録されます
+                </p>
                 <div className="flex gap-1">
                   {["日", "月", "火", "水", "木", "金", "土"].map((label, i) => (
                     <button
                       key={label}
                       type="button"
                       onClick={() => toggleSelectionHolidayWeekday(i)}
-                      className={`w-7 h-7 rounded-full text-[11px] border ${
+                      className={`w-8 h-8 rounded-full text-[11px] font-medium border transition-colors ${
                         selectionHolidayWeekdays.includes(i)
-                          ? "bg-theme-card text-theme-text border-theme-border"
-                          : "bg-theme-bg-input text-theme-text border-theme-border"
+                          ? "bg-accent border-accent text-white"
+                          : "bg-theme-bg-input text-theme-text border-theme-border hover:bg-theme-bg-elevated"
                       }`}
+                      title={selectionHolidayWeekdays.includes(i) ? `${label}曜日を休日に設定（クリックで解除）` : `${label}曜日を休日に設定`}
                     >
                       {label}
                     </button>
                   ))}
+                </div>
+                <div className="mt-1.5 min-h-[1.25rem] text-[10px]">
+                  {selectionHolidayWeekdays.length > 0 ? (
+                    <span className="text-accent">
+                      選択中: {selectionHolidayWeekdays.map((i) => ["日", "月", "火", "水", "木", "金", "土"][i]).join(", ")}
+                    </span>
+                  ) : (
+                    <span className="invisible" aria-hidden>選択中: —</span>
+                  )}
                 </div>
               </div>
               <div className="flex justify-end gap-2 pt-2">
