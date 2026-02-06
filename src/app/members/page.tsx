@@ -28,7 +28,56 @@ export default function MembersPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteModalClosing, setDeleteModalClosing] = useState(false);
   const [deleteModalAnimatingIn, setDeleteModalAnimatingIn] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addModalClosing, setAddModalClosing] = useState(false);
+  const [addModalAnimatingIn, setAddModalAnimatingIn] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editModalClosing, setEditModalClosing] = useState(false);
+  const [editModalAnimatingIn, setEditModalAnimatingIn] = useState(false);
   const { isAdmin, signOut, profile } = useAuth();
+
+  // 追加モーダル: 開閉アニメーション
+  useEffect(() => {
+    if (!showAddModal || addModalClosing) return;
+    setAddModalAnimatingIn(false);
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setAddModalAnimatingIn(true));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [showAddModal, addModalClosing]);
+  useEffect(() => {
+    if (!addModalClosing) return;
+    const t = setTimeout(() => {
+      setShowAddModal(false);
+      setAddModalClosing(false);
+      setAddModalAnimatingIn(false);
+      setForm({ name: "" });
+      setErrors({});
+    }, 220);
+    return () => clearTimeout(t);
+  }, [addModalClosing]);
+
+  // 編集モーダル: 開閉アニメーション
+  useEffect(() => {
+    if (!showEditModal || !editingMember || editModalClosing) return;
+    setEditModalAnimatingIn(false);
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setEditModalAnimatingIn(true));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [showEditModal, editingMember, editModalClosing]);
+  useEffect(() => {
+    if (!editModalClosing) return;
+    const t = setTimeout(() => {
+      setEditingMember(null);
+      setShowEditModal(false);
+      setEditModalClosing(false);
+      setEditModalAnimatingIn(false);
+      setForm({ name: "" });
+      setErrors({});
+    }, 220);
+    return () => clearTimeout(t);
+  }, [editModalClosing]);
 
   // 削除確認モーダル: 開くアニメーション
   useEffect(() => {
@@ -101,11 +150,7 @@ export default function MembersPage() {
       const createdMember = await createMember(newMember);
       setMembers((prev) => [createdMember, ...prev]);
       toast.success("メンバーが登録されました。");
-      
-      // Reset form
-      setForm({
-        name: "",
-      });
+      setAddModalClosing(true);
     } catch (error: any) {
       console.error("Failed to create member:", error);
       setErrors({ 
@@ -119,12 +164,20 @@ export default function MembersPage() {
 
   const handleEdit = (member: Member) => {
     setEditingMember(member);
-    setForm({
-      name: member.name,
-    });
-    // Scroll to form
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setForm({ name: member.name });
+    setShowEditModal(true);
+    setEditModalClosing(false);
   };
+
+  const openAddModal = () => {
+    setForm({ name: "" });
+    setErrors({});
+    setShowAddModal(true);
+    setAddModalClosing(false);
+  };
+
+  const closeAddModal = () => setAddModalClosing(true);
+  const closeEditModal = () => setEditModalClosing(true);
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -155,12 +208,7 @@ export default function MembersPage() {
         prev.map((m) => (m.id === updatedMember.id ? updatedMember : m))
       );
       toast.success("メンバーが更新されました。");
-      
-      // Reset form and editing state
-      setEditingMember(null);
-      setForm({
-        name: "",
-      });
+      setEditModalClosing(true);
     } catch (error: any) {
       console.error("Failed to update member:", error);
       setErrors({ 
@@ -196,69 +244,23 @@ export default function MembersPage() {
     }
   };
 
-  const handleCancelEdit = () => {
-    setEditingMember(null);
-    setForm({
-      name: "",
-    });
-    setErrors({});
-  };
 
   return (
     <AuthGuard requireAdmin={true}>
     <div className="h-screen flex flex-col">
       <header className="px-4 md:px-6 py-3 border-b border-theme-border flex items-center justify-between">
-        <div className="flex items-baseline gap-4">
-          <h1 className="text-lg font-semibold text-theme-text">メンバー管理</h1>
-        </div>
+        <h1 className="text-lg font-semibold text-theme-text">メンバー管理</h1>
+        <button
+          type="button"
+          onClick={openAddModal}
+          className="inline-flex items-center px-4 py-2 rounded-md bg-accent text-theme-text text-sm font-medium hover:brightness-110"
+        >
+          追加
+        </button>
       </header>
       <div className="flex-1 overflow-auto p-3 md:p-4">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.8fr)]">
-        <Card title={editingMember ? "メンバー編集" : "新規メンバー登録"}>
-          <form className="space-y-4 text-sm" onSubmit={editingMember ? handleUpdate : handleSubmit}>
-            <div>
-              <label className="block mb-1">メンバー名</label>
-              <input
-                className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
-                value={form.name}
-                onChange={(e) => handleChange("name", e.target.value)}
-                placeholder="例: 寺道雅気"
-              />
-              {errors.name && (
-                <p className="mt-1 text-xs text-red-400">
-                  {errors.name}
-                </p>
-              )}
-            </div>
-            {errors.submit && (
-              <p className="text-xs text-red-400">{errors.submit}</p>
-            )}
-            <div className="pt-2 flex gap-2">
-              {editingMember && (
-                <button
-                  type="button"
-                  onClick={handleCancelEdit}
-                  disabled={isSubmitting}
-                  className="inline-flex items-center px-4 py-2 rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text text-sm font-medium hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  キャンセル
-                </button>
-              )}
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="inline-flex items-center px-4 py-2 rounded-md bg-accent text-white text-sm font-medium hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSubmitting 
-                  ? (editingMember ? "更新中..." : "登録中...") 
-                  : (editingMember ? "更新" : "登録")
-                }
-              </button>
-            </div>
-          </form>
-        </Card>
         <Card title="メンバー一覧">
-          <div className="space-y-2 text-xs max-h-[calc(100vh-140px)] overflow-auto pr-1" style={{ scrollbarWidth: 'none' }}>
+          <div className="space-y-2 text-xs max-h-[calc(100vh-140px)] overflow-auto pr-1" >
             {errors.submit && !isLoading && (
               <div className="mb-2 p-2 bg-red-900/20 border border-red-800 rounded-md">
                 <p className="text-xs text-red-400">{errors.submit}</p>
@@ -308,8 +310,145 @@ export default function MembersPage() {
             )}
           </div>
         </Card>
-        </div>
       </div>
+
+      {/* 追加モーダル（開閉アニメーション） */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
+              addModalClosing || !addModalAnimatingIn ? "opacity-0" : "opacity-100"
+            }`}
+            aria-label="閉じる"
+            onClick={closeAddModal}
+          />
+          <div
+            className={`relative w-full max-w-[400px] rounded-xl bg-theme-bg-input border border-theme-border shadow-lg p-4 text-theme-text transition-all duration-200 ease-out ${
+              addModalClosing || !addModalAnimatingIn
+                ? "opacity-0 scale-95 translate-y-2"
+                : "opacity-100 scale-100 translate-y-0"
+            }`}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-semibold">メンバー追加</h3>
+              <button
+                type="button"
+                onClick={closeAddModal}
+                className="p-2 -mr-2 rounded-md text-theme-text-muted hover:bg-theme-bg-elevated hover:text-theme-text"
+                aria-label="閉じる"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <form className="space-y-4 text-sm" onSubmit={handleSubmit}>
+              <div>
+                <label className="block mb-1">メンバー名</label>
+                <input
+                  className="w-full rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-3 py-2"
+                  value={form.name}
+                  onChange={(e) => handleChange("name", e.target.value)}
+                  placeholder="例: 寺道雅気"
+                />
+                {errors.name && (
+                  <p className="mt-1 text-xs text-red-400">{errors.name}</p>
+                )}
+              </div>
+              {errors.submit && (
+                <p className="text-xs text-red-400">{errors.submit}</p>
+              )}
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={closeAddModal}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 rounded-md border border-theme-border text-theme-text text-xs hover:bg-theme-bg-elevated disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 rounded-md bg-accent text-theme-text text-sm font-medium hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmitting ? "登録中..." : "登録"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 編集モーダル（開閉アニメーション） */}
+      {showEditModal && editingMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
+              editModalClosing || !editModalAnimatingIn ? "opacity-0" : "opacity-100"
+            }`}
+            aria-label="閉じる"
+            onClick={closeEditModal}
+          />
+          <div
+            className={`relative w-full max-w-[400px] rounded-xl bg-theme-bg-input border border-theme-border shadow-lg p-4 text-theme-text transition-all duration-200 ease-out ${
+              editModalClosing || !editModalAnimatingIn
+                ? "opacity-0 scale-95 translate-y-2"
+                : "opacity-100 scale-100 translate-y-0"
+            }`}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-semibold">メンバー編集</h3>
+              <button
+                type="button"
+                onClick={closeEditModal}
+                className="p-2 -mr-2 rounded-md text-theme-text-muted hover:bg-theme-bg-elevated hover:text-theme-text"
+                aria-label="閉じる"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <form className="space-y-4 text-sm" onSubmit={handleUpdate}>
+              <div>
+                <label className="block mb-1">メンバー名</label>
+                <input
+                  className="w-full rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-3 py-2"
+                  value={form.name}
+                  onChange={(e) => handleChange("name", e.target.value)}
+                  placeholder="例: 寺道雅気"
+                />
+                {errors.name && (
+                  <p className="mt-1 text-xs text-red-400">{errors.name}</p>
+                )}
+              </div>
+              {errors.submit && (
+                <p className="text-xs text-red-400">{errors.submit}</p>
+              )}
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={closeEditModal}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 rounded-md border border-theme-border text-theme-text text-xs hover:bg-theme-bg-elevated disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 rounded-md bg-accent text-theme-text text-sm font-medium hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmitting ? "更新中..." : "更新"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Delete Confirmation Modal（開閉アニメーション） */}
       {deletingMemberId && (

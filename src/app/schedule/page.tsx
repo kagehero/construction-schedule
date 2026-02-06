@@ -34,6 +34,19 @@ const getMemberShortName = (name: string): string => {
   return name.slice(0, 2);
 };
 
+/** メンバーIDから一貫した色を取得（色分け表示用） */
+const MEMBER_COLORS = [
+  "#3b82f6", "#f97316", "#22c55e", "#eab308", "#a855f7",
+  "#ef4444", "#06b6d4", "#ec4899", "#84cc16", "#6366f1",
+  "#14b8a6", "#f43f5e", "#8b5cf6", "#0ea5e9", "#22d3ee"
+];
+
+function getMemberColor(memberId: string, members: Member[]): string {
+  const idx = members.findIndex((m) => m.id === memberId);
+  if (idx >= 0) return MEMBER_COLORS[idx % MEMBER_COLORS.length];
+  return MEMBER_COLORS[0];
+}
+
 // 作業班名の省略表示用（スマートフォン向け）
 const getWorkLineShortName = (name: string): string => {
   if (!name) return "";
@@ -130,6 +143,7 @@ export default function SchedulePage() {
   const [selectionModalAnimatingIn, setSelectionModalAnimatingIn] = useState(false);
   const [bulkAssignModalClosing, setBulkAssignModalClosing] = useState(false);
   const [bulkAssignModalAnimatingIn, setBulkAssignModalAnimatingIn] = useState(false);
+  const [monthEndVerifyMode, setMonthEndVerifyMode] = useState(false);
 
   // 案件詳細モーダル: 開閉アニメーション
   useEffect(() => {
@@ -353,14 +367,19 @@ export default function SchedulePage() {
   /** 日付が今日より前（過去）なら true（過去日は自動ロック対象） */
   const isPastDate = (iso: string) => iso < format(new Date(), "yyyy-MM-dd");
 
-  const isCellLocked = (workLineId: string, iso: string) =>
-    isPastDate(iso) ||
-    dayStatuses.some(
-      (s) => s.workLineId === workLineId && s.date === iso && s.isLocked
+  /** 月末確認モード時は過去・ロック済みも編集可 */
+  const isCellLocked = (workLineId: string, iso: string) => {
+    if (monthEndVerifyMode && isAdmin) return false;
+    return (
+      isPastDate(iso) ||
+      dayStatuses.some(
+        (s) => s.workLineId === workLineId && s.date === iso && s.isLocked
+      )
     );
+  };
 
   const toggleLock = (workLineId: string, iso: string) => {
-    if (isPastDate(iso)) return;
+    if (isPastDate(iso) && !monthEndVerifyMode) return;
     if (!isAdmin) {
       toast.error('この操作は管理者のみ実行できます。閲覧者権限では編集操作はできません。');
       return;
@@ -889,7 +908,20 @@ export default function SchedulePage() {
         )
         )}
         <Card title="工程表" className="text-xs overflow-hidden">
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            {isAdmin && (
+              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={monthEndVerifyMode}
+                  onChange={(e) => setMonthEndVerifyMode(e.target.checked)}
+                  className="rounded border-theme-border bg-theme-bg-input text-accent focus:ring-accent"
+                />
+                <span className="text-[11px] text-theme-text-muted">
+                  月末確認モード
+                </span>
+              </label>
+            )}
             <button
               type="button"
               onClick={goToPrevWeek}
@@ -926,9 +958,7 @@ export default function SchedulePage() {
             className="overflow-y-auto overflow-x-auto"
             style={{ 
               width: '100%',
-              height: SCHEDULE_SCROLL_HEIGHT_PX,
-              scrollbarWidth: 'none',
-              scrollbarColor: '#475569 #1e293b'
+              height: SCHEDULE_SCROLL_HEIGHT_PX
             }}
           >
             <table className="border-collapse text-[11px] w-full" style={{ tableLayout: 'fixed', minHeight: '280px' }} cellPadding="0" cellSpacing="0">
@@ -1083,13 +1113,18 @@ export default function SchedulePage() {
                                           members.find(
                                           (m) => m.id === a.memberId
                                           ) ?? members[0];
+                                const memberColor = getMemberColor(a.memberId, members);
                                 return (
                                   <span
                                     key={a.id}
-                                            title={member.name}
-                                            className="inline-flex items-center justify-center w-6 h-6 rounded-full border border-theme-border bg-theme-bg-input text-theme-text text-[10px] flex-shrink-0"
+                                    title={member.name}
+                                    className="inline-flex items-center justify-center w-6 h-6 rounded-full border-2 text-theme-text text-[10px] flex-shrink-0"
+                                    style={{
+                                      borderColor: memberColor,
+                                      backgroundColor: `${memberColor}20`
+                                    }}
                                   >
-                                            {getMemberShortName(member.name)}
+                                    {getMemberShortName(member.name)}
                                   </span>
                                 );
                               })}
@@ -1115,15 +1150,15 @@ export default function SchedulePage() {
                                     e.stopPropagation();
                                     if (!isPastDate(iso)) toggleLock(line.id, iso);
                                   }}
-                                  disabled={isPastDate(iso)}
+                                  disabled={isPastDate(iso) && !monthEndVerifyMode}
                                   className={`w-6 h-6 rounded-full flex items-center justify-center text-xs transition-all flex-shrink-0 ${
-                                    isPastDate(iso)
+                                    isPastDate(iso) && !monthEndVerifyMode
                                       ? "bg-theme-bg-elevated/60 text-theme-text-muted border border-theme-border cursor-default"
                                       : locked
                                         ? "bg-accent/20 text-accent border border-accent/50 hover:scale-110 hover:bg-accent/30"
                                         : "bg-theme-bg-elevated/60 text-theme-text-muted border border-theme-border hover:scale-110 hover:bg-theme-bg-elevated-hover hover:text-theme-text"
                                   }`}
-                                  title={isPastDate(iso) ? "過去のため編集不可" : locked ? "ロック解除" : "この日を確定"}
+                                  title={isPastDate(iso) && !monthEndVerifyMode ? "過去のため編集不可（月末確認モードで編集可）" : locked ? "ロック解除" : "この日を確定"}
                                   style={{ flexShrink: 0 }}
                                 >
                                   {locked ? "🔒" : "🔓"}
