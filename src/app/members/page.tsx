@@ -11,6 +11,7 @@ import toast from "react-hot-toast";
 
 const memberSchema = z.object({
   name: z.string().min(1, "メンバー名は必須です"),
+  color: z.string().optional(), // #RRGGBB を想定（未指定なら自動色）
 });
 
 type FormState = z.infer<typeof memberSchema>;
@@ -19,6 +20,7 @@ export default function MembersPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [form, setForm] = useState<FormState>({
     name: "",
+    color: "#3b82f6",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -51,7 +53,7 @@ export default function MembersPage() {
       setShowAddModal(false);
       setAddModalClosing(false);
       setAddModalAnimatingIn(false);
-      setForm({ name: "" });
+      setForm({ name: "", color: "#3b82f6" });
       setErrors({});
     }, 220);
     return () => clearTimeout(t);
@@ -73,7 +75,7 @@ export default function MembersPage() {
       setShowEditModal(false);
       setEditModalClosing(false);
       setEditModalAnimatingIn(false);
-      setForm({ name: "" });
+      setForm({ name: "", color: "#3b82f6" });
       setErrors({});
     }, 220);
     return () => clearTimeout(t);
@@ -145,6 +147,7 @@ export default function MembersPage() {
     try {
       const newMember: Omit<Member, 'id'> = {
         name: form.name,
+        color: form.color,
       };
 
       const createdMember = await createMember(newMember);
@@ -164,13 +167,13 @@ export default function MembersPage() {
 
   const handleEdit = (member: Member) => {
     setEditingMember(member);
-    setForm({ name: member.name });
+    setForm({ name: member.name, color: member.color ?? "#3b82f6" });
     setShowEditModal(true);
     setEditModalClosing(false);
   };
 
   const openAddModal = () => {
-    setForm({ name: "" });
+    setForm({ name: "", color: "#3b82f6" });
     setErrors({});
     setShowAddModal(true);
     setAddModalClosing(false);
@@ -201,6 +204,7 @@ export default function MembersPage() {
     try {
       const updateData: Partial<Omit<Member, 'id'>> = {
         name: form.name,
+        color: form.color,
       };
 
       const updatedMember = await updateMember(editingMember.id, updateData);
@@ -356,6 +360,21 @@ export default function MembersPage() {
                   <p className="mt-1 text-xs text-red-400">{errors.name}</p>
                 )}
               </div>
+              <div>
+                <label className="block mb-1 text-xs text-theme-text-muted-strong">表示色</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    className="w-10 h-8 rounded border border-theme-border bg-theme-bg-elevated cursor-pointer"
+                    value={form.color ?? "#3b82f6"}
+                    onChange={(e) => handleChange("color", e.target.value)}
+                    title="工程表でのメンバー色"
+                  />
+                  <span className="text-[11px] text-theme-text-muted">
+                    工程表のメンバー丸アイコンの色になります
+                  </span>
+                </div>
+              </div>
               {errors.submit && (
                 <p className="text-xs text-red-400">{errors.submit}</p>
               )}
@@ -424,6 +443,21 @@ export default function MembersPage() {
                 {errors.name && (
                   <p className="mt-1 text-xs text-red-400">{errors.name}</p>
                 )}
+              </div>
+              <div>
+                <label className="block mb-1 text-xs text-theme-text-muted-strong">表示色</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    className="w-10 h-8 rounded border border-theme-border bg-theme-bg-elevated cursor-pointer"
+                    value={form.color ?? "#3b82f6"}
+                    onChange={(e) => handleChange("color", e.target.value)}
+                    title="工程表でのメンバー色"
+                  />
+                  <span className="text-[11px] text-theme-text-muted">
+                    工程表のメンバー丸アイコンの色になります
+                  </span>
+                </div>
               </div>
               {errors.submit && (
                 <p className="text-xs text-red-400">{errors.submit}</p>

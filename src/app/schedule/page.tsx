@@ -43,6 +43,8 @@ const MEMBER_COLORS = [
 
 function getMemberColor(memberId: string, members: Member[]): string {
   const idx = members.findIndex((m) => m.id === memberId);
+  const member = idx >= 0 ? members[idx] : undefined;
+  if (member?.color) return member.color;
   if (idx >= 0) return MEMBER_COLORS[idx % MEMBER_COLORS.length];
   return MEMBER_COLORS[0];
 }

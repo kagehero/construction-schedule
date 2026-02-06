@@ -1,6 +1,8 @@
 export interface Member {
   id: string;
   name: string;
+  /** 工程表などで使うメンバー固有の色（任意） */
+  color?: string;
 }
 
 export interface WorkLine {
