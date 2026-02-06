@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import "./globals.css";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { SupabaseStatus } from "@/components/SupabaseStatus";
@@ -68,7 +69,27 @@ function Sidebar({ onNavigate, showCloseButton, onClose }: SidebarProps) {
   return (
     <aside className="w-56 h-full min-h-0 bg-theme-sidebar text-theme-text flex flex-col">
       <div className="flex items-center justify-between shrink-0 px-4 py-3 text-lg font-semibold border-b border-theme-border">
-        <span>工程管理</span>
+        {/* ロゴ：クリックで工程・人員配置へ移動 */}
+        <button
+          type="button"
+          onClick={() => {
+            router.push('/schedule');
+            onNavigate?.();
+          }}
+          className="inline-flex items-center gap-2 text-theme-text hover:text-theme-accent transition-colors"
+        >
+          <span className="relative h-8 w-8 flex-shrink-0">
+            <Image
+              src="/image/logo.png"
+              alt="工程管理ロゴ"
+              fill
+              sizes="32px"
+              className="object-contain"
+              priority
+            />
+          </span>
+          <span className="truncate">工程管理</span>
+        </button>
         {showCloseButton && (
           <button
             type="button"
@@ -164,6 +185,7 @@ function Sidebar({ onNavigate, showCloseButton, onClose }: SidebarProps) {
 
 function LayoutContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const isLoginPage = pathname === '/login';
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSidebarClosing, setIsSidebarClosing] = useState(false);
@@ -262,7 +284,24 @@ function LayoutContent({ children }: { children: ReactNode }) {
               <line x1="3" y1="18" x2="21" y2="18" />
             </svg>
           </button>
-          <span className="text-sm font-semibold truncate">工程管理システム</span>
+          {/* ロゴ：タップで工程・人員配置画面へ */}
+          <button
+            type="button"
+            onClick={() => router.push('/schedule')}
+            className="flex items-center gap-2 text-sm font-semibold truncate text-theme-text hover:text-theme-accent"
+          >
+            <span className="relative h-7 w-7 flex-shrink-0">
+              <Image
+                src="/image/logo.png"
+                alt="工程管理ロゴ"
+                fill
+                sizes="28px"
+                className="object-contain"
+                priority
+              />
+            </span>
+            <span className="truncate">工程管理システム</span>
+          </button>
           <span className="w-9" aria-hidden="true" />
         </header>
 
