@@ -38,7 +38,7 @@ export default function DashboardPage() {
           </p>
         </header>
 
-        <div className="flex-1 overflow-auto p-6" style={{ scrollbarWidth: 'none' }}>
+        <div className="flex-1 overflow-auto p-6" >
           <div className="max-w-7xl mx-auto space-y-6">
             <Card title="案件一覧">
               <div className="space-y-2 text-xs max-h-[calc(100vh-200px)] overflow-auto pr-1">

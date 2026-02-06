@@ -48,6 +48,10 @@ body {
 
 * {
   box-sizing: border-box;
+  scrollbar-width: none; /* Firefox: スクロールバー非表示（マウススクロールは有効） */
+  -ms-overflow-style: none; /* IE, Edge */
 }
 
-
+*::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}

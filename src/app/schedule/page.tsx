@@ -958,9 +958,7 @@ export default function SchedulePage() {
             className="overflow-y-auto overflow-x-auto"
             style={{ 
               width: '100%',
-              height: SCHEDULE_SCROLL_HEIGHT_PX,
-              scrollbarWidth: 'none',
-              scrollbarColor: '#475569 #1e293b'
+              height: SCHEDULE_SCROLL_HEIGHT_PX
             }}
           >
             <table className="border-collapse text-[11px] w-full" style={{ tableLayout: 'fixed', minHeight: '280px' }} cellPadding="0" cellSpacing="0">

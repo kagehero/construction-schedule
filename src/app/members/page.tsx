@@ -260,7 +260,7 @@ export default function MembersPage() {
       </header>
       <div className="flex-1 overflow-auto p-3 md:p-4">
         <Card title="メンバー一覧">
-          <div className="space-y-2 text-xs max-h-[calc(100vh-140px)] overflow-auto pr-1" style={{ scrollbarWidth: 'none' }}>
+          <div className="space-y-2 text-xs max-h-[calc(100vh-140px)] overflow-auto pr-1" >
             {errors.submit && !isLoading && (
               <div className="mb-2 p-2 bg-red-900/20 border border-red-800 rounded-md">
                 <p className="text-xs text-red-400">{errors.submit}</p>
