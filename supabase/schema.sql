@@ -34,6 +34,23 @@ CREATE TABLE IF NOT EXISTS members (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Work groups table (作業班マスター)
+CREATE TABLE IF NOT EXISTS work_groups (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  color TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Customers table (取引先会社マスター)
+CREATE TABLE IF NOT EXISTS customers (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Work lines table
 CREATE TABLE IF NOT EXISTS work_lines (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -76,8 +93,14 @@ CREATE INDEX IF NOT EXISTS idx_work_lines_project_id ON work_lines(project_id);
 CREATE INDEX IF NOT EXISTS idx_day_site_status_work_line_id ON day_site_status(work_line_id);
 CREATE INDEX IF NOT EXISTS idx_day_site_status_date ON day_site_status(date);
 
+-- Create index for customers
+CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);
+CREATE INDEX IF NOT EXISTS idx_work_groups_name ON work_groups(name);
+
 -- Enable Row Level Security (RLS)
 ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE work_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE work_lines ENABLE ROW LEVEL SECURITY;
@@ -124,6 +147,30 @@ CREATE POLICY "Anyone can view members" ON members
   FOR SELECT USING (true);
 
 CREATE POLICY "Only admins can manage members" ON members
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- Customers policies
+CREATE POLICY "Anyone can view customers" ON customers
+  FOR SELECT USING (true);
+
+CREATE POLICY "Only admins can manage customers" ON customers
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- Work groups policies
+CREATE POLICY "Anyone can view work groups" ON work_groups
+  FOR SELECT USING (true);
+
+CREATE POLICY "Only admins can manage work groups" ON work_groups
   FOR ALL USING (
     EXISTS (
       SELECT 1 FROM user_profiles

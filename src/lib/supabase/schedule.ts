@@ -118,11 +118,12 @@ export async function createWorkLine(workLine: Omit<WorkLine, 'id'>): Promise<Wo
 
 export async function updateWorkLine(
   id: string,
-  data: Partial<Pick<WorkLine, 'name' | 'color'>>
+  data: Partial<Pick<WorkLine, 'name' | 'color' | 'projectId'>>
 ): Promise<WorkLine> {
   const updateData: Record<string, unknown> = {};
   if (data.name !== undefined) updateData.name = data.name;
   if (data.color !== undefined) updateData.color = data.color ?? null;
+  if (data.projectId !== undefined) updateData.project_id = data.projectId ?? null;
 
   const { data: row, error } = await supabase
     .from('work_lines')
