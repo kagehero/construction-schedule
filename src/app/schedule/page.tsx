@@ -34,6 +34,13 @@ const getMemberShortName = (name: string): string => {
   return name.slice(0, 2);
 };
 
+/** 丸の下に表示する名前（約4文字） */
+const getMemberNameLabel = (name: string, maxLen: number = 4): string => {
+  if (!name) return "";
+  const trimmed = name.trim();
+  return trimmed.length <= maxLen ? trimmed : trimmed.slice(0, maxLen);
+};
+
 /** メンバーIDから一貫した色を取得（色分け表示用） */
 const MEMBER_COLORS = [
   "#3b82f6", "#f97316", "#22c55e", "#eab308", "#a855f7",
@@ -1120,13 +1127,20 @@ export default function SchedulePage() {
                                   <span
                                     key={a.id}
                                     title={member.name}
-                                    className="inline-flex items-center justify-center w-6 h-6 rounded-full border-2 text-theme-text text-[10px] flex-shrink-0"
-                                    style={{
-                                      borderColor: memberColor,
-                                      backgroundColor: `${memberColor}20`
-                                    }}
+                                    className="inline-flex flex-col items-center gap-0.5 flex-shrink-0 min-w-0"
                                   >
-                                    {getMemberShortName(member.name)}
+                                    <span
+                                      className="inline-flex items-center justify-center w-6 h-6 rounded-full border-2 text-theme-text text-[10px] flex-shrink-0"
+                                      style={{
+                                        borderColor: memberColor,
+                                        backgroundColor: `${memberColor}20`
+                                      }}
+                                    >
+                                      {getMemberShortName(member.name)}
+                                    </span>
+                                    <span className="text-[9px] text-theme-text-muted truncate max-w-[4.5em] leading-tight" style={{ maxWidth: "4.5em" }}>
+                                      {getMemberNameLabel(member.name, 4)}
+                                    </span>
                                   </span>
                                 );
                               })}
