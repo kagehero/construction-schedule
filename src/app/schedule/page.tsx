@@ -16,7 +16,9 @@ import { AuthGuard } from "@/components/AuthGuard";
 import toast from "react-hot-toast";
 import { getWorkLines, getAssignments, createAssignments, deleteAssignments, getMembers } from "@/lib/supabase/schedule";
 import { getProjects } from "@/lib/supabase/projects";
+import { getCustomerMembersByCustomerIds } from "@/lib/supabase/customerMembers";
 import type { Project } from "@/domain/projects/types";
+import type { CustomerMember } from "@/lib/supabase/customerMembers";
 
 // カレンダー上の丸アイコン用の省略名を生成
 const getMemberShortName = (name: string): string => {
@@ -135,6 +137,7 @@ export default function SchedulePage() {
   const [workLines, setWorkLines] = useState<WorkLine[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [customerMembers, setCustomerMembers] = useState<CustomerMember[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -212,7 +215,7 @@ export default function SchedulePage() {
     return () => clearTimeout(t);
   }, [bulkAssignModalClosing]);
 
-  // Load work lines, projects, and members from database
+  // Load work lines, projects, members, and customer members (BP) from database
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -225,6 +228,9 @@ export default function SchedulePage() {
         setWorkLines(lines);
         setProjects(projs);
         setMembers(membersData);
+        const customerIds = [...new Set(projs.map((p) => p.customerId).filter((id): id is string => !!id))];
+        const bpMembers = customerIds.length > 0 ? await getCustomerMembersByCustomerIds(customerIds) : [];
+        setCustomerMembers(bpMembers);
       } catch (error) {
         console.error("Failed to load data:", error);
         toast.error("データの読み込みに失敗しました。");
@@ -269,6 +275,12 @@ export default function SchedulePage() {
     if (!filteredWorkLineId) return workLines;
     return workLines.filter((line) => line.id === filteredWorkLineId);
   }, [filteredWorkLineId, workLines]);
+
+  // 案件に紐づく取引先（ビジネスパートナー）メンバーを取得
+  const getBPMembersForProject = (project: Project | null): CustomerMember[] => {
+    if (!project?.customerId) return [];
+    return customerMembers.filter((m) => m.customerId === project.customerId);
+  };
 
   // ワークグループに関連する案件を取得する関数
   const getProjectForWorkLine = (workLineId: string, date: string): Project | null => {
@@ -1088,6 +1100,34 @@ export default function SchedulePage() {
                                   📋 {project.siteName}
                                 </button>
                               ) : null}
+                            {/* 取引先（ビジネスパートナー）メンバー表示（円＋名前） */}
+                            {project && getBPMembersForProject(project).length > 0 ? (
+                              <div className="flex flex-wrap gap-1 min-w-0 items-center flex-shrink-0">
+                                {getBPMembersForProject(project).map((m) => {
+                                  const bpColor = m.color || MEMBER_COLORS[0];
+                                  return (
+                                    <span
+                                      key={m.id}
+                                      title={m.name}
+                                      className="inline-flex flex-col items-center gap-0.5 flex-shrink-0 min-w-0"
+                                    >
+                                      <span
+                                        className="inline-flex items-center justify-center w-6 h-6 rounded-full border-2 text-theme-text text-[10px] flex-shrink-0"
+                                        style={{
+                                          borderColor: bpColor,
+                                          backgroundColor: `${bpColor}20`
+                                        }}
+                                      >
+                                        {getMemberShortName(m.name)}
+                                      </span>
+                                      <span className="text-[9px] text-theme-text-muted truncate max-w-[4.5em] leading-tight" style={{ maxWidth: "4.5em" }}>
+                                        {getMemberNameLabel(m.name, 4)}
+                                      </span>
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
                           <button
                             type="button"
                               onClick={() => {
@@ -1258,6 +1298,12 @@ export default function SchedulePage() {
                 <label className="text-xs text-theme-text-muted block mb-1">取引先会社名</label>
                 <div className="text-sm">{selectedProject.customerName}</div>
               </div>
+              {getBPMembersForProject(selectedProject).length > 0 && (
+                <div>
+                  <label className="text-xs text-theme-text-muted block mb-1">取引先メンバー（ビジネスパートナー）</label>
+                  <div className="text-sm">{getBPMembersForProject(selectedProject).map((m) => m.name).join(", ")}</div>
+                </div>
+              )}
               <div>
                 <label className="text-xs text-theme-text-muted block mb-1">契約形態</label>
                 <div className="text-sm">

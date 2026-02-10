@@ -9,6 +9,7 @@ import { getProjects, createProject, updateProject, deleteProject } from "@/lib/
 import { getWorkLines, createWorkLine, updateWorkLine, deleteWorkLine } from "@/lib/supabase/schedule";
 import { getWorkGroups, createWorkGroup, updateWorkGroup, deleteWorkGroup } from "@/lib/supabase/workGroups";
 import { getCustomers, createCustomer, updateCustomer, deleteCustomer } from "@/lib/supabase/customers";
+import { getCustomerMembers, createCustomerMember, updateCustomerMember, deleteCustomerMember } from "@/lib/supabase/customerMembers";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthGuard } from "@/components/AuthGuard";
 import toast from "react-hot-toast";
@@ -68,6 +69,7 @@ export default function ProjectsPage() {
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [selectedWorkGroupIds, setSelectedWorkGroupIds] = useState<string[]>([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
   const [showNewProjectForm, setShowNewProjectForm] = useState(false);
   const [formModalClosing, setFormModalClosing] = useState(false);
   const [formModalAnimatingIn, setFormModalAnimatingIn] = useState(false);
@@ -90,6 +92,10 @@ export default function ProjectsPage() {
   // 取引先会社
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [newCustomerName, setNewCustomerName] = useState("");
+  const [newCustomerAddress, setNewCustomerAddress] = useState("");
+  const [newCustomerPhone, setNewCustomerPhone] = useState("");
+  const [newCustomerContactPerson, setNewCustomerContactPerson] = useState("");
+  const [customerMemberRows, setCustomerMemberRows] = useState<{ id?: string; name: string; color: string }[]>([]);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [customerModalClosing, setCustomerModalClosing] = useState(false);
   const [customerModalAnimatingIn, setCustomerModalAnimatingIn] = useState(false);
@@ -132,6 +138,7 @@ export default function ProjectsPage() {
         endDate: ""
       });
       setSelectedWorkGroupIds([]);
+      setSelectedCustomerId("");
       setErrors({});
     }, 220);
     return () => clearTimeout(t);
@@ -276,15 +283,35 @@ export default function ProjectsPage() {
   const openNewCustomerModal = () => {
     setEditingCustomer(null);
     setNewCustomerName("");
+    setNewCustomerAddress("");
+    setNewCustomerPhone("");
+    setNewCustomerContactPerson("");
+    setCustomerMemberRows([]);
     setShowCustomerModal(true);
     setCustomerModalClosing(false);
   };
 
-  const openEditCustomerModal = (c: Customer) => {
+  const openEditCustomerModal = async (c: Customer) => {
     setEditingCustomer(c);
     setNewCustomerName(c.name);
+    setNewCustomerAddress(c.address ?? "");
+    setNewCustomerPhone(c.phone ?? "");
+    setNewCustomerContactPerson(c.contactPerson ?? "");
     setShowCustomerModal(true);
     setCustomerModalClosing(false);
+    try {
+      const members = await getCustomerMembers(c.id);
+      setCustomerMemberRows(
+        members.map((m, i) => ({
+          id: m.id,
+          name: m.name,
+          color: m.color ?? WORK_GROUP_DEFAULT_COLORS[i % WORK_GROUP_DEFAULT_COLORS.length]
+        }))
+      );
+    } catch (error) {
+      console.error("Failed to load customer members:", error);
+      setCustomerMemberRows([]);
+    }
   };
 
   const closeCustomerModal = () => setCustomerModalClosing(true);
@@ -298,11 +325,39 @@ export default function ProjectsPage() {
     }
     setIsCustomerSubmitting(true);
     try {
+      const input = {
+        name,
+        address: newCustomerAddress.trim() || undefined,
+        phone: newCustomerPhone.trim() || undefined,
+        contactPerson: newCustomerContactPerson.trim() || undefined,
+      };
+      let customerId: string;
       if (editingCustomer) {
-        await updateCustomer(editingCustomer.id, name);
+        await updateCustomer(editingCustomer.id, input);
+        customerId = editingCustomer.id;
+        const existingIds = new Set(customerMemberRows.filter((r) => r.id).map((r) => r.id!));
+        const currentMembers = await getCustomerMembers(customerId);
+        for (const m of currentMembers) {
+          if (!existingIds.has(m.id)) await deleteCustomerMember(m.id);
+        }
+        for (const row of customerMemberRows) {
+          const n = row.name.trim();
+          if (!n) continue;
+          const color = row.color || WORK_GROUP_DEFAULT_COLORS[0];
+          if (row.id) {
+            await updateCustomerMember(row.id, n, color);
+          } else {
+            await createCustomerMember(customerId, n, color);
+          }
+        }
         toast.success("取引先会社を更新しました。");
       } else {
-        await createCustomer(name);
+        const created = await createCustomer(input);
+        customerId = created.id;
+        for (const row of customerMemberRows) {
+          const n = row.name.trim();
+          if (n) await createCustomerMember(customerId, n, row.color || WORK_GROUP_DEFAULT_COLORS[0]);
+        }
         toast.success("取引先会社を登録しました。");
       }
       loadCustomers();
@@ -313,6 +368,33 @@ export default function ProjectsPage() {
     } finally {
       setIsCustomerSubmitting(false);
     }
+  };
+
+  const addCustomerMemberRow = () => {
+    setCustomerMemberRows((prev) => [
+      ...prev,
+      { name: "", color: WORK_GROUP_DEFAULT_COLORS[prev.length % WORK_GROUP_DEFAULT_COLORS.length] }
+    ]);
+  };
+
+  const removeCustomerMemberRow = (index: number) => {
+    setCustomerMemberRows((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const updateCustomerMemberRowName = (index: number, value: string) => {
+    setCustomerMemberRows((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], name: value };
+      return next;
+    });
+  };
+
+  const updateCustomerMemberRowColor = (index: number, color: string) => {
+    setCustomerMemberRows((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], color };
+      return next;
+    });
   };
 
   const handleCustomerDeleteClick = (id: string) => {
@@ -388,6 +470,11 @@ export default function ProjectsPage() {
     const t = setTimeout(() => {
       setShowCustomerModal(false);
       setEditingCustomer(null);
+      setNewCustomerName("");
+      setNewCustomerAddress("");
+      setNewCustomerPhone("");
+      setNewCustomerContactPerson("");
+      setCustomerMemberRows([]);
       setCustomerModalClosing(false);
       setCustomerModalAnimatingIn(false);
     }, 220);
@@ -424,6 +511,8 @@ export default function ProjectsPage() {
     return list;
   })();
 
+  const selectedCustomerIdForSave = selectedCustomerId && selectedCustomerId !== "__current__" ? selectedCustomerId : undefined;
+
   const handleChange = (
     field: keyof FormState,
     value: string | number | null
@@ -451,6 +540,7 @@ export default function ProjectsPage() {
     try {
       const newProject: Omit<Project, 'id'> = {
         title: form.title || form.siteName, // Use siteName as title if title is empty
+        customerId: selectedCustomerIdForSave,
         customerName: form.customerName,
         siteName: form.siteName,
         contractType: form.contractType as ContractType,
@@ -492,6 +582,7 @@ export default function ProjectsPage() {
 
   const handleEdit = async (project: Project) => {
     setEditingProject(project);
+    setSelectedCustomerId(project.customerId ?? "");
     await loadWorkGroups();
     setForm({
       title: project.title || "",
@@ -539,8 +630,9 @@ export default function ProjectsPage() {
     try {
       const updateData: Partial<Omit<Project, 'id'>> = {
         title: form.title || form.siteName,
-      customerName: form.customerName,
-      siteName: form.siteName,
+        customerId: selectedCustomerIdForSave,
+        customerName: form.customerName,
+        siteName: form.siteName,
       contractType: form.contractType as ContractType,
       contractAmount: isUkeoi ? form.contractAmount ?? 0 : undefined,
       siteAddress: form.siteAddress,
@@ -629,6 +721,7 @@ export default function ProjectsPage() {
 
   const openNewProjectForm = () => {
     setEditingProject(null);
+    setSelectedCustomerId("");
     setShowNewProjectForm(true);
     loadWorkGroups();
     setForm({
@@ -857,7 +950,14 @@ export default function ProjectsPage() {
                     key={c.id}
                     className="rounded-lg border border-theme-border bg-theme-bg-input text-theme-text px-3 py-2 flex items-center justify-between gap-2"
                   >
-                    <div className="font-semibold truncate">{c.name}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold truncate">{c.name}</div>
+                      {(c.address || c.phone || c.contactPerson) && (
+                        <div className="text-[11px] text-theme-text-muted mt-0.5 truncate">
+                          {[c.contactPerson, c.phone, c.address].filter(Boolean).join("　・　")}
+                        </div>
+                      )}
+                    </div>
                     <div className="flex gap-1 shrink-0">
                       <button
                         type="button"
@@ -918,13 +1018,15 @@ export default function ProjectsPage() {
             <div className="flex-1 min-h-0 overflow-y-auto p-4">
               <form className="space-y-4 text-sm" onSubmit={editingProject ? handleUpdate : handleSubmit}>
                 <div>
-                  <label className="block mb-1">取引先会社名</label>
+                  <label className="block mb-1">取引先会社名（ビジネスパートナー）</label>
                   <select
                     className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
                     value={customerOptions.find((c) => c.name === form.customerName)?.id ?? (form.customerName ? "__current__" : "")}
                     onChange={(e) => {
-                      const opt = customerOptions.find((c) => c.id === e.target.value);
+                      const value = e.target.value;
+                      const opt = customerOptions.find((c) => c.id === value);
                       handleChange("customerName", opt ? opt.name : "");
+                      setSelectedCustomerId(value && value !== "__current__" ? value : "");
                     }}
                   >
                     <option value="">選択してください</option>
@@ -1169,6 +1271,71 @@ export default function ProjectsPage() {
                   placeholder="会社名を入力"
                   required
                 />
+              </div>
+              <div>
+                <label className="block mb-1 text-sm">住所</label>
+                <input
+                  className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                  value={newCustomerAddress}
+                  onChange={(e) => setNewCustomerAddress(e.target.value)}
+                  placeholder="住所を入力"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-sm">電話番号</label>
+                <input
+                  className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                  type="tel"
+                  value={newCustomerPhone}
+                  onChange={(e) => setNewCustomerPhone(e.target.value)}
+                  placeholder="03-1234-5678"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-sm">担当者</label>
+                <input
+                  className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                  value={newCustomerContactPerson}
+                  onChange={(e) => setNewCustomerContactPerson(e.target.value)}
+                  placeholder="担当者名を入力"
+                />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm">取引先メンバー（ビジネスパートナー担当者）</label>
+                  <button type="button" onClick={addCustomerMemberRow} className="text-xs px-2 py-1.5 rounded border border-theme-border bg-theme-bg-elevated hover:bg-theme-bg-elevated-hover text-theme-text-muted-strong">
+                    + 追加
+                  </button>
+                </div>
+                <p className="text-[11px] text-theme-text-muted mb-2">
+                  案件でこの取引先を選択すると、工程表に担当者名が表示されます。
+                </p>
+                <div className="space-y-2 max-h-32 overflow-y-auto rounded-md border border-theme-border bg-theme-bg-input p-2">
+                  {customerMemberRows.map((row, index) => (
+                    <div key={row.id ?? `new-${index}`} className="flex gap-2 items-center">
+                      <input
+                        type="color"
+                        className="w-9 h-9 rounded-md border border-theme-border cursor-pointer bg-theme-bg-input p-0.5 flex-shrink-0"
+                        value={row.color || WORK_GROUP_DEFAULT_COLORS[0]}
+                        onChange={(e) => updateCustomerMemberRowColor(index, e.target.value)}
+                        title="表示色"
+                      />
+                      <input
+                        type="text"
+                        className="flex-1 min-w-0 rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-1.5 text-sm"
+                        value={row.name}
+                        onChange={(e) => updateCustomerMemberRowName(index, e.target.value)}
+                        placeholder="担当者名"
+                      />
+                      <button type="button" onClick={() => removeCustomerMemberRow(index)} className="px-2 py-1.5 text-xs rounded border border-red-600 bg-theme-bg-elevated hover:bg-red-900/20 text-red-400">
+                        削除
+                      </button>
+                    </div>
+                  ))}
+                  {customerMemberRows.length === 0 && (
+                    <p className="text-xs text-theme-text-muted">「+ 追加」で担当者を追加</p>
+                  )}
+                </div>
               </div>
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={closeCustomerModal} disabled={isCustomerSubmitting} className="px-4 py-2.5 rounded-md border border-theme-border text-theme-text text-sm hover:bg-theme-bg-elevated disabled:opacity-50">キャンセル</button>

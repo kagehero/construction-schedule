@@ -59,18 +59,53 @@ export interface Database {
         Row: {
           id: string
           name: string
+          address: string | null
+          phone: string | null
+          contact_person: string | null
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
           name: string
+          address?: string | null
+          phone?: string | null
+          contact_person?: string | null
           created_at?: string
           updated_at?: string
         }
         Update: {
           id?: string
           name?: string
+          address?: string | null
+          phone?: string | null
+          contact_person?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      customer_members: {
+        Row: {
+          id: string
+          customer_id: string
+          name: string
+          color: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          customer_id: string
+          name: string
+          color?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          customer_id?: string
+          name?: string
+          color?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -79,6 +114,7 @@ export interface Database {
         Row: {
           id: string
           title: string
+          customer_id: string | null
           customer_name: string
           site_name: string
           contract_type: '請負' | '常用' | '追加工事'
@@ -92,6 +128,7 @@ export interface Database {
         Insert: {
           id?: string
           title: string
+          customer_id?: string | null
           customer_name: string
           site_name: string
           contract_type: '請負' | '常用' | '追加工事'
@@ -105,6 +142,7 @@ export interface Database {
         Update: {
           id?: string
           title?: string
+          customer_id?: string | null
           customer_name?: string
           site_name?: string
           contract_type?: '請負' | '常用' | '追加工事'

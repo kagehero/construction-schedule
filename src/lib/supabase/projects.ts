@@ -8,6 +8,7 @@ type ProjectRow = Database['public']['Tables']['projects']['Row'];
 const toProject = (row: ProjectRow): Project => ({
   id: row.id,
   title: row.title,
+  customerId: row.customer_id ?? undefined,
   customerName: row.customer_name,
   siteName: row.site_name,
   contractType: row.contract_type as ContractType,
@@ -50,6 +51,7 @@ export async function createProject(project: Omit<Project, 'id'>): Promise<Proje
     .from('projects')
     .insert({
       title: project.title,
+      customer_id: project.customerId ?? null,
       customer_name: project.customerName,
       site_name: project.siteName,
       contract_type: project.contractType,
@@ -71,6 +73,7 @@ export async function updateProject(
 ): Promise<Project> {
   const updateData: any = {};
   if (project.title !== undefined) updateData.title = project.title;
+  if (project.customerId !== undefined) updateData.customer_id = project.customerId ?? null;
   if (project.customerName !== undefined) updateData.customer_name = project.customerName;
   if (project.siteName !== undefined) updateData.site_name = project.siteName;
   if (project.contractType !== undefined) updateData.contract_type = project.contractType;

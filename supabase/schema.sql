@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS user_profiles (
 CREATE TABLE IF NOT EXISTS projects (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   title TEXT NOT NULL,
+  customer_id UUID REFERENCES customers(id) ON DELETE SET NULL,
   customer_name TEXT NOT NULL,
   site_name TEXT NOT NULL,
   contract_type TEXT NOT NULL CHECK (contract_type IN ('請負', '常用', '追加工事')),
@@ -47,6 +48,19 @@ CREATE TABLE IF NOT EXISTS work_groups (
 CREATE TABLE IF NOT EXISTS customers (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name TEXT NOT NULL,
+  address TEXT,
+  phone TEXT,
+  contact_person TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Customer members (取引先のメンバー・ビジネスパートナー担当者)
+CREATE TABLE IF NOT EXISTS customer_members (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  color TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -95,12 +109,15 @@ CREATE INDEX IF NOT EXISTS idx_day_site_status_date ON day_site_status(date);
 
 -- Create index for customers
 CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);
+CREATE INDEX IF NOT EXISTS idx_customer_members_customer_id ON customer_members(customer_id);
+CREATE INDEX IF NOT EXISTS idx_projects_customer_id ON projects(customer_id);
 CREATE INDEX IF NOT EXISTS idx_work_groups_name ON work_groups(name);
 
 -- Enable Row Level Security (RLS)
 ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE work_groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customer_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE work_lines ENABLE ROW LEVEL SECURITY;
@@ -159,6 +176,18 @@ CREATE POLICY "Anyone can view customers" ON customers
   FOR SELECT USING (true);
 
 CREATE POLICY "Only admins can manage customers" ON customers
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- Customer members policies
+CREATE POLICY "Anyone can view customer members" ON customer_members
+  FOR SELECT USING (true);
+
+CREATE POLICY "Only admins can manage customer members" ON customer_members
   FOR ALL USING (
     EXISTS (
       SELECT 1 FROM user_profiles
