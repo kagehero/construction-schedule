@@ -247,6 +247,16 @@ export default function ProjectsPage() {
       toast.error("作業班名を入力してください。");
       return;
     }
+    // 同名の作業班が既に存在しないかチェック（編集時は自分自身を除外）
+    const duplicate = workGroups.some(
+      (wg) =>
+        wg.name.trim() === name &&
+        (!editingWorkGroup || wg.id !== editingWorkGroup.id)
+    );
+    if (duplicate) {
+      toast.error("同じ作業班名が既に登録されています。別の名前を入力してください。");
+      return;
+    }
     setIsWorkGroupSubmitting(true);
     try {
       if (editingWorkGroup) {
