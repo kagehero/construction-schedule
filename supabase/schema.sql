@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS projects (
   site_name TEXT NOT NULL,
   contract_type TEXT NOT NULL CHECK (contract_type IN ('請負', '常用', '追加工事')),
   contract_amount NUMERIC,
+  memo TEXT,
+  site_status TEXT,
   site_address TEXT NOT NULL,
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,

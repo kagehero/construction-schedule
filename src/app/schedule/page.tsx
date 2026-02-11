@@ -1318,10 +1318,22 @@ export default function SchedulePage() {
                   <div className="text-sm">¥{selectedProject.contractAmount.toLocaleString()}</div>
                 </div>
               )}
+              {selectedProject.siteStatus && (
+                <div>
+                  <label className="text-xs text-theme-text-muted block mb-1">現場ステータス</label>
+                  <div className="text-sm">{selectedProject.siteStatus}</div>
+                </div>
+              )}
               <div>
                 <label className="text-xs text-theme-text-muted block mb-1">現場住所</label>
                 <div className="text-sm">{selectedProject.siteAddress}</div>
               </div>
+              {selectedProject.memo && (
+                <div>
+                  <label className="text-xs text-theme-text-muted block mb-1">メモ</label>
+                  <div className="text-sm whitespace-pre-wrap break-words">{selectedProject.memo}</div>
+                </div>
+              )}
               <div>
                 <label className="text-xs text-theme-text-muted block mb-1">工期</label>
                 <div className="text-sm">

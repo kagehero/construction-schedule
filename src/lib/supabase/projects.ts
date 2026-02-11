@@ -13,6 +13,8 @@ const toProject = (row: ProjectRow): Project => ({
   siteName: row.site_name,
   contractType: row.contract_type as ContractType,
   contractAmount: row.contract_amount ?? undefined,
+  memo: row.memo ?? undefined,
+  siteStatus: (row.site_status as Project["siteStatus"]) ?? undefined,
   siteAddress: row.site_address,
   startDate: row.start_date,
   endDate: row.end_date,
@@ -56,6 +58,8 @@ export async function createProject(project: Omit<Project, 'id'>): Promise<Proje
       site_name: project.siteName,
       contract_type: project.contractType,
       contract_amount: project.contractAmount ?? null,
+      memo: project.memo ?? null,
+      site_status: project.siteStatus ?? null,
       site_address: project.siteAddress,
       start_date: project.startDate,
       end_date: project.endDate,
@@ -78,6 +82,8 @@ export async function updateProject(
   if (project.siteName !== undefined) updateData.site_name = project.siteName;
   if (project.contractType !== undefined) updateData.contract_type = project.contractType;
   if (project.contractAmount !== undefined) updateData.contract_amount = project.contractAmount ?? null;
+   if (project.memo !== undefined) updateData.memo = project.memo ?? null;
+   if (project.siteStatus !== undefined) updateData.site_status = project.siteStatus ?? null;
   if (project.siteAddress !== undefined) updateData.site_address = project.siteAddress;
   if (project.startDate !== undefined) updateData.start_date = project.startDate;
   if (project.endDate !== undefined) updateData.end_date = project.endDate;

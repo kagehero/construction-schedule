@@ -119,6 +119,8 @@ export interface Database {
           site_name: string
           contract_type: '請負' | '常用' | '追加工事'
           contract_amount: number | null
+          memo: string | null
+          site_status: string | null
           site_address: string
           start_date: string
           end_date: string
@@ -133,6 +135,8 @@ export interface Database {
           site_name: string
           contract_type: '請負' | '常用' | '追加工事'
           contract_amount?: number | null
+          memo?: string | null
+          site_status?: string | null
           site_address: string
           start_date: string
           end_date: string
@@ -147,6 +151,8 @@ export interface Database {
           site_name?: string
           contract_type?: '請負' | '常用' | '追加工事'
           contract_amount?: number | null
+          memo?: string | null
+          site_status?: string | null
           site_address?: string
           start_date?: string
           end_date?: string

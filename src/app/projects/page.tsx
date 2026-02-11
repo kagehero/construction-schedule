@@ -33,7 +33,9 @@ const projectSchema = z.object({
     ),
   siteAddress: z.string().min(1, "現場住所は必須です"),
   startDate: z.string().min(1, "開始日は必須です"),
-  endDate: z.string().min(1, "終了日は必須です")
+  endDate: z.string().min(1, "終了日は必須です"),
+  memo: z.string().max(1000, "メモは1000文字以内で入力してください").optional(),
+  siteStatus: z.string().max(50, "現場ステータスは50文字以内で入力してください").optional()
 });
 
 type FormState = z.infer<typeof projectSchema>;
@@ -60,7 +62,9 @@ export default function ProjectsPage() {
     contractAmount: null,
     siteAddress: "",
     startDate: "",
-    endDate: ""
+    endDate: "",
+    memo: "",
+    siteStatus: "組立"
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -135,7 +139,9 @@ export default function ProjectsPage() {
         contractAmount: null,
         siteAddress: "",
         startDate: "",
-        endDate: ""
+        endDate: "",
+        memo: "",
+        siteStatus: "組立"
       });
       setSelectedWorkGroupIds([]);
       setSelectedCustomerId("");
@@ -569,6 +575,8 @@ export default function ProjectsPage() {
         siteName: form.siteName,
         contractType: form.contractType as ContractType,
         contractAmount: isUkeoi ? form.contractAmount ?? 0 : undefined,
+        memo: form.memo?.trim() || undefined,
+        siteStatus: form.siteStatus as Project["siteStatus"] ?? "組立",
         siteAddress: form.siteAddress,
         startDate: form.startDate,
         endDate: form.endDate
@@ -616,7 +624,9 @@ export default function ProjectsPage() {
       contractAmount: project.contractAmount ?? null,
       siteAddress: project.siteAddress,
       startDate: project.startDate,
-      endDate: project.endDate
+      endDate: project.endDate,
+      memo: project.memo ?? "",
+      siteStatus: project.siteStatus ?? "組立"
     });
 
     try {
@@ -659,6 +669,8 @@ export default function ProjectsPage() {
         siteName: form.siteName,
       contractType: form.contractType as ContractType,
       contractAmount: isUkeoi ? form.contractAmount ?? 0 : undefined,
+        memo: form.memo?.trim() || undefined,
+        siteStatus: form.siteStatus as Project["siteStatus"] ?? "組立",
       siteAddress: form.siteAddress,
       startDate: form.startDate,
       endDate: form.endDate
@@ -756,7 +768,9 @@ export default function ProjectsPage() {
       contractAmount: null,
       siteAddress: "",
       startDate: "",
-      endDate: ""
+      endDate: "",
+      memo: "",
+      siteStatus: "組立"      
     });
     setSelectedWorkGroupIds([]);
     setErrors({});
@@ -844,7 +858,7 @@ export default function ProjectsPage() {
             {projects.map((p) => (
               <div
                 key={p.id}
-                className="rounded-lg border border-theme-border bg-theme-bg-input text-theme-text px-3 py-2"
+                className="rounded-lg border border-theme-border bg-theme-bg-elevated text-theme-text px-3 py-2"
               >
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="font-semibold min-w-0">{p.siteName}</div>
@@ -1138,6 +1152,30 @@ export default function ProjectsPage() {
                       onChange={(e) => handleChange("endDate", e.target.value)}
                     />
                   </div>
+                </div>
+                <div>
+                  <label className="block mb-1">現場ステータス</label>
+                  <input
+                    list="project-site-status-list"
+                    className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                    value={form.siteStatus ?? ""}
+                    onChange={(e) => handleChange("siteStatus", e.target.value)}
+                    placeholder="例: 組立 / 解体 / 準備中 など自由入力"
+                  />
+                  <datalist id="project-site-status-list">
+                    <option value="組立" />
+                    <option value="解体" />
+                    <option value="準備中" />
+                  </datalist>
+                </div>
+                <div>
+                  <label className="block mb-1">メモ</label>
+                  <textarea
+                    className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2 min-h-[80px]"
+                    value={form.memo ?? ""}
+                    onChange={(e) => handleChange("memo", e.target.value)}
+                    placeholder="現場の注意事項や共有したい情報を自由に記入できます（任意）"
+                  />
                 </div>
                 <div>
                   <label className="block mb-1">作業班</label>
