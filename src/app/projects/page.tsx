@@ -269,7 +269,31 @@ export default function ProjectsPage() {
     if (!deletingWorkGroupId) return;
     setIsWorkGroupDeleting(true);
     try {
+      // 対象の作業班を取得（同名の work_line を削除するために利用）
+      const targetWorkGroup = workGroups.find((wg) => wg.id === deletingWorkGroupId);
+
+      // まず作業班マスターを削除
       await deleteWorkGroup(deletingWorkGroupId);
+
+      // 続いて、この作業班名を持つ作業班行（work_lines）を工程表から削除
+      if (targetWorkGroup) {
+        try {
+          const lines = await getWorkLines();
+          const relatedLines = lines.filter((wl) => wl.name === targetWorkGroup.name);
+          for (const wl of relatedLines) {
+            try {
+              await deleteWorkLine(wl.id);
+            } catch (err) {
+              console.error(`Failed to delete work line "${wl.name}" (${wl.id}):`, err);
+              toast.error(`工程表の作業班「${wl.name}」の削除に失敗しました。`);
+            }
+          }
+        } catch (err) {
+          console.error("Failed to load work lines for delete:", err);
+          toast.error("工程表の作業班削除のための読み込みに失敗しました。");
+        }
+      }
+
       loadWorkGroups();
       setWorkGroupDeleteModalClosing(true);
     } catch (error) {
@@ -1241,7 +1265,9 @@ export default function ProjectsPage() {
           <button type="button" className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${workGroupDeleteModalClosing || !workGroupDeleteAnimatingIn ? "opacity-0" : "opacity-100"}`} aria-label="閉じる" onClick={() => setWorkGroupDeleteModalClosing(true)} />
           <div className={`relative max-w-[400px] w-full rounded-xl bg-theme-bg-input border border-theme-border shadow-lg p-4 text-theme-text transition-all duration-200 ease-out ${workGroupDeleteModalClosing || !workGroupDeleteAnimatingIn ? "opacity-0 scale-95 translate-y-2" : "opacity-100 scale-100 translate-y-0"}`}>
             <h3 className="text-sm font-semibold mb-2">作業班の削除</h3>
-            <p className="text-xs text-theme-text-muted mb-4">この作業班をマスターから削除してもよろしいですか？既存の案件に紐づく同名の班は、案件編集時に同期されます。</p>
+            <p className="text-xs text-theme-text-muted mb-4">
+              この作業班を削除してもよろしいですか？この班に紐づく工程表上の作業班行（work_lines）や、その行に割り当てられた人員・ロック情報も合わせて削除されます。
+            </p>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setWorkGroupDeleteModalClosing(true)} disabled={isWorkGroupDeleting} className="px-4 py-2 rounded-md border border-theme-border text-theme-text text-xs hover:bg-theme-bg-elevated disabled:opacity-50">キャンセル</button>
               <button type="button" onClick={handleWorkGroupDeleteConfirm} disabled={isWorkGroupDeleting} className="px-4 py-2 rounded-md bg-red-600 text-xs font-medium hover:bg-red-700 disabled:opacity-50">{isWorkGroupDeleting ? "削除中..." : "削除"}</button>
