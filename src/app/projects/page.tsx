@@ -1043,23 +1043,23 @@ export default function ProjectsPage() {
               <form className="space-y-4 text-sm" onSubmit={editingProject ? handleUpdate : handleSubmit}>
                 <div>
                   <label className="block mb-1">取引先会社名（ビジネスパートナー）</label>
-                  <select
+                  <input
+                    list="project-customer-list"
                     className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
-                    value={customerOptions.find((c) => c.name === form.customerName)?.id ?? (form.customerName ? "__current__" : "")}
+                    value={form.customerName}
                     onChange={(e) => {
                       const value = e.target.value;
-                      const opt = customerOptions.find((c) => c.id === value);
-                      handleChange("customerName", opt ? opt.name : "");
-                      setSelectedCustomerId(value && value !== "__current__" ? value : "");
+                      handleChange("customerName", value);
+                      const match = customers.find((c) => c.name === value.trim());
+                      setSelectedCustomerId(match ? match.id : "");
                     }}
-                  >
-                    <option value="">選択してください</option>
-                    {customerOptions.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
+                    placeholder="取引先名を入力 / 選択"
+                  />
+                  <datalist id="project-customer-list">
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.name} />
                     ))}
-                  </select>
+                  </datalist>
                   {errors.customerName && (
                     <p className="mt-1 text-xs text-red-400">{errors.customerName}</p>
                   )}
