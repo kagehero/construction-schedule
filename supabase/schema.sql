@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS projects (
   contract_amount NUMERIC,
   memo TEXT,
   site_status TEXT,
+  -- カンマ区切りで 0〜6（0=日曜〜6=土曜）を保存する想定
+  default_holiday_weekdays TEXT,
   site_address TEXT NOT NULL,
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
@@ -65,6 +67,16 @@ CREATE TABLE IF NOT EXISTS customer_members (
   color TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Project members (案件ごとに紐づける自社メンバー)
+CREATE TABLE IF NOT EXISTS project_members (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  member_id UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(project_id, member_id)
 );
 
 -- Work lines table
@@ -113,6 +125,8 @@ CREATE INDEX IF NOT EXISTS idx_day_site_status_date ON day_site_status(date);
 CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);
 CREATE INDEX IF NOT EXISTS idx_customer_members_customer_id ON customer_members(customer_id);
 CREATE INDEX IF NOT EXISTS idx_projects_customer_id ON projects(customer_id);
+CREATE INDEX IF NOT EXISTS idx_project_members_project_id ON project_members(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_members_member_id ON project_members(member_id);
 CREATE INDEX IF NOT EXISTS idx_work_groups_name ON work_groups(name);
 
 -- Enable Row Level Security (RLS)
@@ -120,6 +134,7 @@ ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE work_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE customer_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE project_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE work_lines ENABLE ROW LEVEL SECURITY;
@@ -178,6 +193,18 @@ CREATE POLICY "Anyone can view customers" ON customers
   FOR SELECT USING (true);
 
 CREATE POLICY "Only admins can manage customers" ON customers
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- Project members policies
+CREATE POLICY "Anyone can view project members" ON project_members
+  FOR SELECT USING (true);
+
+CREATE POLICY "Only admins can manage project members" ON project_members
   FOR ALL USING (
     EXISTS (
       SELECT 1 FROM user_profiles

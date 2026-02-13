@@ -438,14 +438,23 @@ export default function SchedulePage() {
       toast.error('この操作は管理者のみ実行できます。閲覧者権限では編集操作はできません。');
       return;
     }
+    // 案件の標準週休日に該当するセルの場合は、割り当てをブロックして通知
+    const project = getProjectForWorkLine(workLineId, iso);
+    if (project?.defaultHolidayWeekdays && project.defaultHolidayWeekdays.length > 0) {
+      const weekday = new Date(iso).getDay();
+      if (project.defaultHolidayWeekdays.includes(weekday)) {
+        toast.error('この日はこの案件の週休日として設定されています。休日には人員を配置できません。');
+        return;
+      }
+    }
     setSelectionModalClosing(false);
     setSelection({ workLineId, date: iso });
     const current = assignments.filter(
       (a) => a.workLineId === workLineId && a.date === iso && !a.isHoliday
     );
     setSelectedMemberIds(current.map((c) => c.memberId));
-    // Reset selection holiday weekdays when opening modal
-    setSelectionHolidayWeekdays([]);
+    // 対象案件の標準週休日を初期選択として反映
+    setSelectionHolidayWeekdays(project?.defaultHolidayWeekdays ?? []);
   };
 
   const toggleMember = (memberId: string) => {
@@ -1068,6 +1077,9 @@ export default function SchedulePage() {
                       const cellAssignments = getCellAssignments(line.id, iso);
                       const locked = isCellLocked(line.id, iso);
                       const project = getProjectForWorkLine(line.id, iso);
+                      const weekday = new Date(iso).getDay();
+                      const isWeeklyHoliday =
+                        project?.defaultHolidayWeekdays?.includes(weekday) ?? false;
                       // 案件とメンバーが割り当てられているかチェック
                       const hasProjectAndMembers = project !== null && cellAssignments.length > 0;
                       return (
@@ -1143,59 +1155,71 @@ export default function SchedulePage() {
                               style={{ minHeight: '40px', flexShrink: 0 }}
                           >
                               <div className="flex flex-wrap gap-1 min-w-0 items-center">
-                                {(() => {
-                                  // 列の幅に応じて表示できる人数を計算（各バッジは約28px、gapは4px）
-                                  // 画面幅に応じて表示人数を調整（スマートフォンではより少なく表示）
-                                  const maxVisible = isMobile ? 2 : 5;
-                                  const showAll = cellAssignments.length >= 10;
-                                  const visibleAssignments = showAll
-                                    ? cellAssignments
-                                    : cellAssignments.slice(0, maxVisible);
-                                  const remainingCount = showAll
-                                    ? 0
-                                    : cellAssignments.length - maxVisible;
-                                  
-                                  return (
-                                    <>
-                                      {visibleAssignments.map((a) => {
-                                const member =
-                                          members.find(
-                                          (m) => m.id === a.memberId
-                                          ) ?? members[0];
-                                const memberColor = getMemberColor(a.memberId, members);
-                                return (
-                                  <span
-                                    key={a.id}
-                                    title={member.name}
-                                    className="inline-flex flex-col items-center gap-0.5 flex-shrink-0 min-w-0"
+                                {isWeeklyHoliday ? (
+                                  <div
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-rose-500/60 bg-rose-500/15 text-[11px] font-medium text-rose-200"
+                                    title="この案件では週休日として設定されています"
                                   >
-                                    <span
-                                      className="inline-flex items-center justify-center w-6 h-6 rounded-full border-2 text-theme-text text-[10px] flex-shrink-0"
-                                      style={{
-                                        borderColor: memberColor,
-                                        backgroundColor: `${memberColor}20`
-                                      }}
-                                    >
-                                      {getMemberShortName(member.name)}
+                                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-500/80 text-[10px] font-bold text-white">
+                                      休
                                     </span>
-                                    <span className="text-[9px] text-theme-text-muted truncate max-w-[4.5em] leading-tight" style={{ maxWidth: "4.5em" }}>
-                                      {getMemberNameLabel(member.name, 4)}
-                                    </span>
-                                  </span>
-                                );
-                              })}
-                                      {remainingCount > 0 && (
-                                        <span 
-                                          className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full border border-theme-border bg-theme-bg-elevated text-[10px] text-theme-text-muted-strong flex-shrink-0"
-                                          title={`他${remainingCount}名`}
-                                        >
-                                          +{remainingCount}
-                                </span>
-                              )}
-                                    </>
-                                  );
-                                })()}
-                            </div>
+                                    <span>休日</span>
+                                  </div>
+                                ) : (
+                                  (() => {
+                                    // 列の幅に応じて表示できる人数を計算（各バッジは約28px、gapは4px）
+                                    // 画面幅に応じて表示人数を調整（スマートフォンではより少なく表示）
+                                    const maxVisible = isMobile ? 2 : 5;
+                                    const showAll = cellAssignments.length >= 10;
+                                    const visibleAssignments = showAll
+                                      ? cellAssignments
+                                      : cellAssignments.slice(0, maxVisible);
+                                    const remainingCount = showAll
+                                      ? 0
+                                      : cellAssignments.length - maxVisible;
+                                    
+                                    return (
+                                      <>
+                                        {visibleAssignments.map((a) => {
+                                          const member =
+                                            members.find(
+                                              (m) => m.id === a.memberId
+                                            ) ?? members[0];
+                                          const memberColor = getMemberColor(a.memberId, members);
+                                          return (
+                                            <span
+                                              key={a.id}
+                                              title={member.name}
+                                              className="inline-flex flex-col items-center gap-0.5 flex-shrink-0 min-w-0"
+                                            >
+                                              <span
+                                                className="inline-flex items-center justify-center w-6 h-6 rounded-full border-2 text-theme-text text-[10px] flex-shrink-0"
+                                                style={{
+                                                  borderColor: memberColor,
+                                                  backgroundColor: `${memberColor}20`
+                                                }}
+                                              >
+                                                {getMemberShortName(member.name)}
+                                              </span>
+                                              <span className="text-[9px] text-theme-text-muted truncate max-w-[4.5em] leading-tight" style={{ maxWidth: "4.5em" }}>
+                                                {getMemberNameLabel(member.name, 4)}
+                                              </span>
+                                            </span>
+                                          );
+                                        })}
+                                        {remainingCount > 0 && (
+                                          <span 
+                                            className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full border border-theme-border bg-theme-bg-elevated text-[10px] text-theme-text-muted-strong flex-shrink-0"
+                                            title={`他${remainingCount}名`}
+                                          >
+                                            +{remainingCount}
+                                          </span>
+                                        )}
+                                      </>
+                                    );
+                                  })()
+                                )}
+                              </div>
                           </button>
                           
                             <div className="flex items-center justify-end text-[9px] text-theme-text-muted min-w-0 flex-shrink-0" style={{ height: '24px', minHeight: '24px', maxHeight: '24px', flexShrink: 0, marginTop: 'auto' }}>
@@ -1322,6 +1346,17 @@ export default function SchedulePage() {
                 <div>
                   <label className="text-xs text-theme-text-muted block mb-1">現場ステータス</label>
                   <div className="text-sm">{selectedProject.siteStatus}</div>
+                </div>
+              )}
+              {selectedProject.defaultHolidayWeekdays && selectedProject.defaultHolidayWeekdays.length > 0 && (
+                <div>
+                  <label className="text-xs text-theme-text-muted block mb-1">標準 週休日</label>
+                  <div className="text-sm">
+                    {selectedProject.defaultHolidayWeekdays
+                      .map((d) => ["日", "月", "火", "水", "木", "金", "土"][d] ?? "")
+                      .filter((v) => v !== "")
+                      .join("・")}
+                  </div>
                 </div>
               )}
               <div>
@@ -1502,7 +1537,18 @@ export default function SchedulePage() {
                 <select
                   className="w-full rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-1 py-1 text-[11px]"
                   value={modalWorkLineId}
-                  onChange={(e) => setModalWorkLineId(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setModalWorkLineId(value);
+                    // 選択された作業班に紐づく案件のデフォルト週休日を反映
+                    const wl = workLines.find((line) => line.id === value);
+                    if (wl) {
+                      const proj = projects.find((p) => p.id === wl.projectId);
+                      if (proj && proj.defaultHolidayWeekdays && proj.defaultHolidayWeekdays.length > 0) {
+                        setModalHolidayWeekdays(proj.defaultHolidayWeekdays);
+                      }
+                    }
+                  }}
                 >
                   <option value="">選択してください</option>
                   {workLines.map((line) => (

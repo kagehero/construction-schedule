@@ -12,6 +12,8 @@ export interface Project {
   memo?: string;
   /** 現場ステータス（例: 計画中 / 稼働中 / 完了） */
   siteStatus?: string;
+  /** この案件の標準となる週休日（0=日曜〜6=土曜） */
+  defaultHolidayWeekdays?: number[];
   siteAddress: string;
   startDate: string; // ISO date (yyyy-MM-dd)
   endDate: string; // ISO date (yyyy-MM-dd)

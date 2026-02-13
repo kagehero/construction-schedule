@@ -121,6 +121,7 @@ export interface Database {
           contract_amount: number | null
           memo: string | null
           site_status: string | null
+          default_holiday_weekdays: string | null
           site_address: string
           start_date: string
           end_date: string
@@ -137,6 +138,7 @@ export interface Database {
           contract_amount?: number | null
           memo?: string | null
           site_status?: string | null
+          default_holiday_weekdays?: string | null
           site_address: string
           start_date: string
           end_date: string
@@ -153,6 +155,7 @@ export interface Database {
           contract_amount?: number | null
           memo?: string | null
           site_status?: string | null
+          default_holiday_weekdays?: string | null
           site_address?: string
           start_date?: string
           end_date?: string

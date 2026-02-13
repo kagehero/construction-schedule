@@ -110,6 +110,8 @@ export default function ProjectsPage() {
   const [isCustomerDeleting, setIsCustomerDeleting] = useState(false);
   const [customersLoading, setCustomersLoading] = useState(false);
   const { isAdmin, signOut, profile } = useAuth();
+  const [copySourceProjectId, setCopySourceProjectId] = useState<string>("");
+  const [projectHolidayWeekdays, setProjectHolidayWeekdays] = useState<number[]>([]);
 
   const showForm = showNewProjectForm || !!editingProject;
 
@@ -145,6 +147,7 @@ export default function ProjectsPage() {
       });
       setSelectedWorkGroupIds([]);
       setSelectedCustomerId("");
+      setProjectHolidayWeekdays([]);
       setErrors({});
     }, 220);
     return () => clearTimeout(t);
@@ -587,6 +590,7 @@ export default function ProjectsPage() {
         contractAmount: isUkeoi ? form.contractAmount ?? 0 : undefined,
         memo: form.memo?.trim() || undefined,
         siteStatus: form.siteStatus as Project["siteStatus"] ?? "組立",
+        defaultHolidayWeekdays: projectHolidayWeekdays.length ? projectHolidayWeekdays : undefined,
         siteAddress: form.siteAddress,
         startDate: form.startDate,
         endDate: form.endDate
@@ -638,6 +642,7 @@ export default function ProjectsPage() {
       memo: project.memo ?? "",
       siteStatus: project.siteStatus ?? "組立"
     });
+    setProjectHolidayWeekdays(project.defaultHolidayWeekdays ?? []);
 
     try {
       const [lines, wgs] = await Promise.all([getWorkLines(project.id), getWorkGroups()]);
@@ -650,6 +655,41 @@ export default function ProjectsPage() {
     }
 
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleCopyFromProject = async (projectId: string) => {
+    if (!projectId) return;
+    const src = projects.find((p) => p.id === projectId);
+    if (!src) return;
+
+    // フォーム項目をコピー
+    setForm((prev) => ({
+      ...prev,
+      customerName: src.customerName,
+      siteName: src.siteName,
+      contractType: src.contractType,
+      contractAmount: src.contractAmount ?? null,
+      siteAddress: src.siteAddress,
+      memo: src.memo ?? "",
+      siteStatus: src.siteStatus ?? prev.siteStatus
+    }));
+
+    // 取引先IDを可能であれば紐づけ
+    const customerMatch = customers.find((c) => c.name === src.customerName);
+    setSelectedCustomerId(customerMatch?.id ?? "");
+
+    // 作業班の選択状態をコピー（元案件の work_lines 名から work_groups を引く）
+    try {
+      const [lines, wgs] = await Promise.all([getWorkLines(src.id), getWorkGroups()]);
+      const wgNames = new Map(wgs.map((wg) => [wg.name, wg.id]));
+      const ids = lines
+        .map((wl) => wgNames.get(wl.name))
+        .filter((id): id is string => !!id);
+      setSelectedWorkGroupIds([...new Set(ids)]);
+    } catch (error) {
+      console.error("Failed to copy work groups from project:", error);
+      // 失敗してもフォーム自体は使えるようにしておく
+    }
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
@@ -677,14 +717,15 @@ export default function ProjectsPage() {
         customerId: selectedCustomerIdForSave,
         customerName: form.customerName,
         siteName: form.siteName,
-      contractType: form.contractType as ContractType,
-      contractAmount: isUkeoi ? form.contractAmount ?? 0 : undefined,
+        contractType: form.contractType as ContractType,
+        contractAmount: isUkeoi ? form.contractAmount ?? 0 : undefined,
         memo: form.memo?.trim() || undefined,
         siteStatus: form.siteStatus as Project["siteStatus"] ?? "組立",
-      siteAddress: form.siteAddress,
-      startDate: form.startDate,
-      endDate: form.endDate
-    };
+        defaultHolidayWeekdays: projectHolidayWeekdays.length ? projectHolidayWeekdays : undefined,
+        siteAddress: form.siteAddress,
+        startDate: form.startDate,
+        endDate: form.endDate
+      };
 
       const updatedProject = await updateProject(editingProject.id, updateData);
       const currentWorkLines = await getWorkLines(updatedProject.id);
@@ -780,10 +821,11 @@ export default function ProjectsPage() {
       startDate: "",
       endDate: "",
       memo: "",
-      siteStatus: "組立"      
+      siteStatus: "組立"
     });
     setSelectedWorkGroupIds([]);
     setErrors({});
+    setProjectHolidayWeekdays([]);
   };
 
   const toggleWorkGroupSelection = (id: string) => {
@@ -1065,6 +1107,32 @@ export default function ProjectsPage() {
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-4">
               <form className="space-y-4 text-sm" onSubmit={editingProject ? handleUpdate : handleSubmit}>
+                {!editingProject && projects.length > 0 && (
+                  <div>
+                    <label className="block mb-1">過去案件からコピー（任意）</label>
+                    <select
+                      className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                      value={copySourceProjectId}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setCopySourceProjectId(value);
+                        if (value) {
+                          handleCopyFromProject(value);
+                        }
+                      }}
+                    >
+                      <option value="">選択してください</option>
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.siteName}（{p.customerName}）
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-[11px] text-theme-text-muted">
+                      以前の工事や同じ現場の案件を選ぶと、取引先・住所・作業班などをコピーして新規案件を作成できます。
+                    </p>
+                  </div>
+                )}
                 <div>
                   <label className="block mb-1">取引先会社名（ビジネスパートナー）</label>
                   <input
@@ -1177,6 +1245,32 @@ export default function ProjectsPage() {
                     <option value="解体" />
                     <option value="準備中" />
                   </datalist>
+                </div>
+                <div>
+                  <label className="block mb-1">この案件の標準 週休日（曜日）</label>
+                  <p className="text-[11px] text-theme-text-muted mb-1">
+                    ここで選んだ曜日は、この案件の期間まとめて配置での「休日」の初期値として使われます。
+                  </p>
+                  <div className="flex gap-1">
+                    {["日", "月", "火", "水", "木", "金", "土"].map((label, i) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() =>
+                          setProjectHolidayWeekdays((prev) =>
+                            prev.includes(i) ? prev.filter((d) => d !== i) : [...prev, i]
+                          )
+                        }
+                        className={`w-8 h-8 rounded-full text-[11px] font-medium border transition-colors ${
+                          projectHolidayWeekdays.includes(i)
+                            ? "bg-accent border-accent text-white"
+                            : "bg-theme-bg-input text-theme-text border-theme-border hover:bg-theme-bg-elevated"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div>
                   <label className="block mb-1">メモ</label>
