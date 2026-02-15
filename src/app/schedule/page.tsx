@@ -60,6 +60,19 @@ function getMemberColor(memberId: string, members: Member[]): string {
   return MEMBER_COLORS[0];
 }
 
+/** 工程ステータス（組立・解体・商用など）の色分け */
+const PHASE_STATUS_COLORS: Record<string, { bg: string; border: string; text: string }> = {
+  組立: { bg: "bg-blue-500/20", border: "border-blue-500/60", text: "text-blue-200" },
+  解体: { bg: "bg-red-500/20", border: "border-red-500/60", text: "text-red-200" },
+  商用: { bg: "bg-amber-500/20", border: "border-amber-500/60", text: "text-amber-200" },
+  準備中: { bg: "bg-amber-500/20", border: "border-amber-500/60", text: "text-amber-200" },
+  その他: { bg: "bg-slate-500/20", border: "border-slate-500/60", text: "text-slate-300" },
+};
+
+function getPhaseStatusStyle(status: string) {
+  return PHASE_STATUS_COLORS[status] ?? PHASE_STATUS_COLORS["その他"];
+}
+
 // 作業班名の省略表示用（スマートフォン向け）
 const getWorkLineShortName = (name: string): string => {
   if (!name) return "";
@@ -1162,7 +1175,7 @@ export default function SchedulePage() {
                           style={{ maxWidth: 0, verticalAlign: 'top', padding: 0, lineHeight: 'normal' }}
                         >
                           <div className="w-full px-1.5 py-1.5 flex flex-col gap-1" style={{ minHeight: '110px', boxSizing: 'border-box' }}>
-                            {/* 案件名・工程（組立/解体）表示 */}
+                            {/* 案件名・工程（現場の状態に応じて色分け） */}
                             {project ? (
                                 <div className="flex items-center gap-1 flex-shrink-0">
                                   <button
@@ -1173,20 +1186,16 @@ export default function SchedulePage() {
                                       setSelectedProject(project);
                                       setShowProjectModal(true);
                                     }}
-                                    className="text-[11px] text-accent font-semibold truncate bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded px-2 py-0.5 text-left flex-1 min-w-0 transition-colors"
-                                    title={`${project.siteName} - クリックで詳細を表示`}
+                                    className={`text-[11px] font-semibold truncate rounded px-2 py-0.5 text-left flex-1 min-w-0 transition-colors hover:opacity-90 ${
+                                      phaseStatus
+                                        ? `${getPhaseStatusStyle(phaseStatus).bg} ${getPhaseStatusStyle(phaseStatus).border} ${getPhaseStatusStyle(phaseStatus).text} border`
+                                        : "bg-accent/10 hover:bg-accent/20 border border-accent/30 text-accent"
+                                    }`}
+                                    title={`${project.siteName}${phaseStatus ? ` - ${phaseStatus}` : ""} - クリックで詳細を表示`}
                                     style={{ height: '24px', minHeight: '24px', maxHeight: '24px' }}
                                   >
                                     📋 {project.siteName}
                                   </button>
-                                  {phaseStatus && (
-                                    <span
-                                      className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-theme-bg-elevated border border-theme-border text-theme-text"
-                                      title={`この日の工程: ${phaseStatus}`}
-                                    >
-                                      {phaseStatus}
-                                    </span>
-                                  )}
                                 </div>
                               ) : null}
                             {/* 取引先（ビジネスパートナー）メンバー表示（円＋名前） */}
@@ -1426,14 +1435,17 @@ export default function SchedulePage() {
                     <div>
                       <label className="text-xs text-theme-text-muted block mb-1">工程（組立・解体など）</label>
                       <div className="text-sm space-y-1">
-                        {phases.map((p, i) => (
-                          <div key={i}>
-                            {format(new Date(p.startDate), "M/d", { locale: ja })}
-                            {p.startDate !== p.endDate && ` 〜 ${format(new Date(p.endDate), "M/d", { locale: ja })}`}
-                            {" "}
-                            <span className="inline-flex px-2 py-0.5 rounded bg-theme-bg-elevated">{p.siteStatus}</span>
-                          </div>
-                        ))}
+                        {phases.map((p, i) => {
+                          const style = getPhaseStatusStyle(p.siteStatus);
+                          return (
+                            <div key={i}>
+                              {format(new Date(p.startDate), "M/d", { locale: ja })}
+                              {p.startDate !== p.endDate && ` 〜 ${format(new Date(p.endDate), "M/d", { locale: ja })}`}
+                              {" "}
+                              <span className={`inline-flex px-2 py-0.5 rounded border ${style.bg} ${style.border} ${style.text}`}>{p.siteStatus}</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );
