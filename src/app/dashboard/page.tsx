@@ -49,20 +49,19 @@ export default function DashboardPage() {
                     {projects.map((p) => (
                       <div
                         key={p.id}
-                        className="rounded-lg border border-theme-border bg-theme-bg-elevated px-3 py-2 text-theme-text"
+                        className="rounded-lg border border-theme-border bg-theme-bg-elevated text-theme-text px-3 py-2"
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="font-semibold">{p.siteName}</div>
-                          <div className="text-[10px] text-theme-text-muted">
-                            {p.startDate} ~ {p.endDate}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="font-semibold min-w-0">{p.siteName}</div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-[10px] text-theme-text-muted whitespace-nowrap">
+                              {p.startDate}～{p.endDate}
+                            </span>
                           </div>
                         </div>
                         <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
                           <span className="text-[11px] text-theme-text-muted-strong">
                             {p.customerName}
-                          </span>
-                          <span className="text-[11px] inline-flex items-center px-1.5 py-0.5 rounded bg-theme-bg-input text-theme-text">
-                            {p.contractType}
                           </span>
                           {p.contractAmount && (
                             <span className="text-[11px] text-theme-text-muted">
