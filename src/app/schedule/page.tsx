@@ -16,6 +16,8 @@ import { AuthGuard } from "@/components/AuthGuard";
 import toast from "react-hot-toast";
 import { getWorkLines, getAssignments, createAssignments, deleteAssignments, getMembers } from "@/lib/supabase/schedule";
 import { getProjects } from "@/lib/supabase/projects";
+import { getProjectDefaultMemberIds } from "@/lib/supabase/projectDefaultMembers";
+import { getProjectPhasesMap, getPhaseStatusForDate } from "@/lib/supabase/projectPhases";
 import { getCustomerMembersByCustomerIds } from "@/lib/supabase/customerMembers";
 import type { Project } from "@/domain/projects/types";
 import type { CustomerMember } from "@/lib/supabase/customerMembers";
@@ -138,6 +140,7 @@ export default function SchedulePage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [customerMembers, setCustomerMembers] = useState<CustomerMember[]>([]);
+  const [projectPhasesMap, setProjectPhasesMap] = useState<Map<string, { startDate: string; endDate: string; siteStatus: string }[]>>(new Map());
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -216,29 +219,57 @@ export default function SchedulePage() {
   }, [bulkAssignModalClosing]);
 
   // Load work lines, projects, members, and customer members (BP) from database
+  const loadData = async (options?: { silent?: boolean }) => {
+    const silent = options?.silent ?? false;
+    try {
+      if (!silent) setIsLoadingData(true);
+      const [lines, projs, membersData] = await Promise.all([
+        getWorkLines(),
+        getProjects(),
+        getMembers()
+      ]);
+      // 同一案件・同一作業班名の重複を解消（project_id + name でユニークに）
+      const seen = new Set<string>();
+      const dedupedLines = lines.filter((line) => {
+        const key = `${line.projectId || "__none__"}-${line.name}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      setWorkLines(dedupedLines);
+      setProjects(projs);
+      setMembers(membersData);
+      const customerIds = [...new Set(projs.map((p) => p.customerId).filter((id): id is string => !!id))];
+      const bpMembers = customerIds.length > 0 ? await getCustomerMembersByCustomerIds(customerIds) : [];
+      setCustomerMembers(bpMembers);
+      const phasesMap = await getProjectPhasesMap(projs.map((p) => p.id));
+      setProjectPhasesMap(phasesMap);
+    } catch (error) {
+      console.error("Failed to load data:", error);
+      if (!silent) toast.error("データの読み込みに失敗しました。");
+    } finally {
+      if (!silent) setIsLoadingData(false);
+    }
+  };
+
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsLoadingData(true);
-        const [lines, projs, membersData] = await Promise.all([
-          getWorkLines(),
-          getProjects(),
-          getMembers()
-        ]);
-        setWorkLines(lines);
-        setProjects(projs);
-        setMembers(membersData);
-        const customerIds = [...new Set(projs.map((p) => p.customerId).filter((id): id is string => !!id))];
-        const bpMembers = customerIds.length > 0 ? await getCustomerMembersByCustomerIds(customerIds) : [];
-        setCustomerMembers(bpMembers);
-      } catch (error) {
-        console.error("Failed to load data:", error);
-        toast.error("データの読み込みに失敗しました。");
-      } finally {
-        setIsLoadingData(false);
+    loadData();
+  }, []);
+
+  // 案件管理で休日などを変更した後、タブに戻った際に案件・工程情報を再取得して同期（バックグラウンド更新）
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        loadData({ silent: true });
       }
     };
-    loadData();
+    const handleFocus = () => loadData({ silent: true });
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+    };
   }, []);
 
   // Load assignments when week changes or on initial load
@@ -280,6 +311,17 @@ export default function SchedulePage() {
   const getBPMembersForProject = (project: Project | null): CustomerMember[] => {
     if (!project?.customerId) return [];
     return customerMembers.filter((m) => m.customerId === project.customerId);
+  };
+
+  // セルの日付に対する工程ステータス（組立・解体など）を取得
+  const getPhaseStatusForCell = (workLineId: string, date: string): string | null => {
+    const project = getProjectForWorkLine(workLineId, date);
+    if (!project) return null;
+    const phases = projectPhasesMap.get(project.id);
+    if (phases && phases.length > 0) {
+      return getPhaseStatusForDate(phases, date);
+    }
+    return project.siteStatus ?? null;
   };
 
   // ワークグループに関連する案件を取得する関数
@@ -432,7 +474,7 @@ export default function SchedulePage() {
     });
   };
 
-  const openSelection = (workLineId: string, iso: string) => {
+  const openSelection = async (workLineId: string, iso: string) => {
     if (isCellLocked(workLineId, iso)) return;
     if (!isAdmin) {
       toast.error('この操作は管理者のみ実行できます。閲覧者権限では編集操作はできません。');
@@ -452,7 +494,18 @@ export default function SchedulePage() {
     const current = assignments.filter(
       (a) => a.workLineId === workLineId && a.date === iso && !a.isHoliday
     );
-    setSelectedMemberIds(current.map((c) => c.memberId));
+    if (current.length > 0) {
+      setSelectedMemberIds(current.map((c) => c.memberId));
+    } else if (project?.id) {
+      try {
+        const defaultIds = await getProjectDefaultMemberIds(project.id);
+        setSelectedMemberIds(defaultIds);
+      } catch {
+        setSelectedMemberIds([]);
+      }
+    } else {
+      setSelectedMemberIds([]);
+    }
     // 対象案件の標準週休日を初期選択として反映
     setSelectionHolidayWeekdays(project?.defaultHolidayWeekdays ?? []);
   };
@@ -601,7 +654,7 @@ export default function SchedulePage() {
     }
   };
 
-  const openBulkAssignModal = () => {
+  const openBulkAssignModal = async () => {
     setBulkAssignModalClosing(false);
     setShowBulkAssignModal(true);
     // モーダルを開くときに現在の値を初期値として設定
@@ -611,8 +664,21 @@ export default function SchedulePage() {
     const weekEnd = rangeEndDate || format(addDays(currentWeekStart, 6), "yyyy-MM-dd");
     setModalRangeStart(weekStart);
     setModalRangeEnd(weekEnd);
-    setModalMemberIds([...selectedMemberIds]);
     setModalHolidayWeekdays([...holidayWeekdays]);
+    // 選択された作業班の案件の既定メンバーを初期選択として設定
+    let initialMemberIds = selectedMemberIds;
+    const wl = workLines.find((l) => l.id === selectedWorkLineId);
+    if (wl?.projectId) {
+      try {
+        const defaultIds = await getProjectDefaultMemberIds(wl.projectId);
+        if (defaultIds.length > 0) {
+          initialMemberIds = defaultIds;
+        }
+      } catch {
+        // 既定メンバー取得失敗時は selectedMemberIds のまま
+      }
+    }
+    setModalMemberIds([...initialMemberIds]);
   };
 
   const closeBulkAssignModal = () => setBulkAssignModalClosing(true);
@@ -1080,6 +1146,7 @@ export default function SchedulePage() {
                       const weekday = new Date(iso).getDay();
                       const isWeeklyHoliday =
                         project?.defaultHolidayWeekdays?.includes(weekday) ?? false;
+                      const phaseStatus = getPhaseStatusForCell(line.id, iso);
                       // 案件とメンバーが割り当てられているかチェック
                       const hasProjectAndMembers = project !== null && cellAssignments.length > 0;
                       return (
@@ -1095,22 +1162,32 @@ export default function SchedulePage() {
                           style={{ maxWidth: 0, verticalAlign: 'top', padding: 0, lineHeight: 'normal' }}
                         >
                           <div className="w-full px-1.5 py-1.5 flex flex-col gap-1" style={{ minHeight: '110px', boxSizing: 'border-box' }}>
-                            {/* 案件名表示 */}
+                            {/* 案件名・工程（組立/解体）表示 */}
                             {project ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setProjectModalClosing(false);
-                                    setSelectedProject(project);
-                                    setShowProjectModal(true);
-                                  }}
-                                  className="text-[11px] text-accent font-semibold truncate bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded px-2 py-0.5 text-left w-full transition-colors flex-shrink-0"
-                                  title={`${project.siteName} - クリックで詳細を表示`}
-                                  style={{ height: '24px', minHeight: '24px', maxHeight: '24px' }}
-                                >
-                                  📋 {project.siteName}
-                                </button>
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setProjectModalClosing(false);
+                                      setSelectedProject(project);
+                                      setShowProjectModal(true);
+                                    }}
+                                    className="text-[11px] text-accent font-semibold truncate bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded px-2 py-0.5 text-left flex-1 min-w-0 transition-colors"
+                                    title={`${project.siteName} - クリックで詳細を表示`}
+                                    style={{ height: '24px', minHeight: '24px', maxHeight: '24px' }}
+                                  >
+                                    📋 {project.siteName}
+                                  </button>
+                                  {phaseStatus && (
+                                    <span
+                                      className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-theme-bg-elevated border border-theme-border text-theme-text"
+                                      title={`この日の工程: ${phaseStatus}`}
+                                    >
+                                      {phaseStatus}
+                                    </span>
+                                  )}
+                                </div>
                               ) : null}
                             {/* 取引先（ビジネスパートナー）メンバー表示（円＋名前） */}
                             {project && getBPMembersForProject(project).length > 0 ? (
@@ -1342,12 +1419,35 @@ export default function SchedulePage() {
                   <div className="text-sm">¥{selectedProject.contractAmount.toLocaleString()}</div>
                 </div>
               )}
-              {selectedProject.siteStatus && (
-                <div>
-                  <label className="text-xs text-theme-text-muted block mb-1">現場ステータス</label>
-                  <div className="text-sm">{selectedProject.siteStatus}</div>
-                </div>
-              )}
+              {(() => {
+                const phases = projectPhasesMap.get(selectedProject.id);
+                if (phases && phases.length > 0) {
+                  return (
+                    <div>
+                      <label className="text-xs text-theme-text-muted block mb-1">工程（組立・解体など）</label>
+                      <div className="text-sm space-y-1">
+                        {phases.map((p, i) => (
+                          <div key={i}>
+                            {format(new Date(p.startDate), "M/d", { locale: ja })}
+                            {p.startDate !== p.endDate && ` 〜 ${format(new Date(p.endDate), "M/d", { locale: ja })}`}
+                            {" "}
+                            <span className="inline-flex px-2 py-0.5 rounded bg-theme-bg-elevated">{p.siteStatus}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
+                if (selectedProject.siteStatus) {
+                  return (
+                    <div>
+                      <label className="text-xs text-theme-text-muted block mb-1">現場ステータス</label>
+                      <div className="text-sm">{selectedProject.siteStatus}</div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
               {selectedProject.defaultHolidayWeekdays && selectedProject.defaultHolidayWeekdays.length > 0 && (
                 <div>
                   <label className="text-xs text-theme-text-muted block mb-1">標準 週休日</label>
@@ -1410,7 +1510,7 @@ export default function SchedulePage() {
               <div>
                 <div className="text-sm font-semibold">人員選択</div>
                 <div className="text-[11px] text-theme-text-muted mt-0.5">
-                  {selection.date} /{" "}
+                  {selection.date}（{["日", "月", "火", "水", "木", "金", "土"][new Date(selection.date).getDay()]}） /{" "}
                   {workLines.find((l) => l.id === selection.workLineId)?.name}
                 </div>
               </div>
@@ -1422,6 +1522,22 @@ export default function SchedulePage() {
                 ×
               </button>
             </div>
+            {(() => {
+              const proj = getProjectForWorkLine(selection.workLineId, selection.date);
+              const holidayWeekdays = proj?.defaultHolidayWeekdays ?? [];
+              return holidayWeekdays.length > 0 ? (
+                <div className="mb-3 px-3 py-2 rounded-md bg-theme-bg-elevated border border-theme-border">
+                  <div className="text-[11px] text-theme-text-muted-strong mb-0.5">この案件の標準週休日</div>
+                  <div className="text-[11px] text-theme-text">
+                    {holidayWeekdays
+                      .map((d) => ["日", "月", "火", "水", "木", "金", "土"][d] ?? "")
+                      .filter((v) => v !== "")
+                      .join("・")}
+                    曜日
+                  </div>
+                </div>
+              ) : null;
+            })()}
             <div className="space-y-3">
               <div>
                 <div className="mb-1 text-[11px] text-theme-text-muted-strong">
@@ -1537,15 +1653,24 @@ export default function SchedulePage() {
                 <select
                   className="w-full rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-1 py-1 text-[11px]"
                   value={modalWorkLineId}
-                  onChange={(e) => {
+                  onChange={async (e) => {
                     const value = e.target.value;
                     setModalWorkLineId(value);
-                    // 選択された作業班に紐づく案件のデフォルト週休日を反映
                     const wl = workLines.find((line) => line.id === value);
                     if (wl) {
                       const proj = projects.find((p) => p.id === wl.projectId);
-                      if (proj && proj.defaultHolidayWeekdays && proj.defaultHolidayWeekdays.length > 0) {
-                        setModalHolidayWeekdays(proj.defaultHolidayWeekdays);
+                      if (proj) {
+                        if (proj.defaultHolidayWeekdays && proj.defaultHolidayWeekdays.length > 0) {
+                          setModalHolidayWeekdays(proj.defaultHolidayWeekdays);
+                        }
+                        try {
+                          const defaultIds = await getProjectDefaultMemberIds(proj.id);
+                          if (defaultIds.length > 0) {
+                            setModalMemberIds(defaultIds);
+                          }
+                        } catch {
+                          // 既定メンバー取得失敗時はそのまま
+                        }
                       }
                     }
                   }}

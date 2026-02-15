@@ -6,14 +6,16 @@ import { z } from "zod";
 import type { ContractType, Project } from "@/domain/projects/types";
 import { Card } from "@/components/ui/card";
 import { getProjects, createProject, updateProject, deleteProject } from "@/lib/supabase/projects";
-import { getWorkLines, createWorkLine, updateWorkLine, deleteWorkLine } from "@/lib/supabase/schedule";
+import { getWorkLines, createWorkLine, updateWorkLine, deleteWorkLine, getMembers } from "@/lib/supabase/schedule";
+import { getProjectDefaultMemberIds, setProjectDefaultMembers } from "@/lib/supabase/projectDefaultMembers";
+import { getProjectPhases, setProjectPhases } from "@/lib/supabase/projectPhases";
 import { getWorkGroups, createWorkGroup, updateWorkGroup, deleteWorkGroup } from "@/lib/supabase/workGroups";
 import { getCustomers, createCustomer, updateCustomer, deleteCustomer } from "@/lib/supabase/customers";
 import { getCustomerMembers, createCustomerMember, updateCustomerMember, deleteCustomerMember } from "@/lib/supabase/customerMembers";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthGuard } from "@/components/AuthGuard";
 import toast from "react-hot-toast";
-import type { WorkLine } from "@/domain/schedule/types";
+import type { WorkLine, Member } from "@/domain/schedule/types";
 import type { Customer } from "@/lib/supabase/customers";
 import type { WorkGroup } from "@/lib/supabase/workGroups";
 
@@ -112,6 +114,9 @@ export default function ProjectsPage() {
   const { isAdmin, signOut, profile } = useAuth();
   const [copySourceProjectId, setCopySourceProjectId] = useState<string>("");
   const [projectHolidayWeekdays, setProjectHolidayWeekdays] = useState<number[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [selectedDefaultMemberIds, setSelectedDefaultMemberIds] = useState<string[]>([]);
+  const [projectPhases, setProjectPhasesState] = useState<{ startDate: string; endDate: string; siteStatus: string }[]>([]);
 
   const showForm = showNewProjectForm || !!editingProject;
 
@@ -148,6 +153,8 @@ export default function ProjectsPage() {
       setSelectedWorkGroupIds([]);
       setSelectedCustomerId("");
       setProjectHolidayWeekdays([]);
+      setSelectedDefaultMemberIds([]);
+      setProjectPhasesState([]);
       setErrors({});
     }, 220);
     return () => clearTimeout(t);
@@ -174,11 +181,12 @@ export default function ProjectsPage() {
     return () => clearTimeout(t);
   }, [deleteModalClosing]);
 
-  // Load projects and customers on mount
+  // Load projects, customers, members on mount
   useEffect(() => {
     loadProjects();
     loadCustomers();
     loadWorkGroups();
+    getMembers().then(setMembers).catch(() => setMembers([]));
   }, []);
 
   const loadCustomers = async () => {
@@ -589,8 +597,8 @@ export default function ProjectsPage() {
         contractType: form.contractType as ContractType,
         contractAmount: isUkeoi ? form.contractAmount ?? 0 : undefined,
         memo: form.memo?.trim() || undefined,
-        siteStatus: form.siteStatus as Project["siteStatus"] ?? "組立",
-        defaultHolidayWeekdays: projectHolidayWeekdays.length ? projectHolidayWeekdays : undefined,
+        siteStatus: (projectPhases[0]?.siteStatus ?? form.siteStatus ?? "組立") as Project["siteStatus"],
+        defaultHolidayWeekdays: projectHolidayWeekdays.length ? projectHolidayWeekdays : [],
         siteAddress: form.siteAddress,
         startDate: form.startDate,
         endDate: form.endDate
@@ -611,6 +619,11 @@ export default function ProjectsPage() {
           toast.error(`作業班「${wg.name}」の紐づけに失敗しました。`);
         }
       }
+      await setProjectDefaultMembers(createdProject.id, selectedDefaultMemberIds);
+      const phasesToSave = projectPhases.length > 0
+        ? projectPhases
+        : [{ startDate: form.startDate, endDate: form.endDate, siteStatus: form.siteStatus ?? "組立" }];
+      await setProjectPhases(createdProject.id, phasesToSave);
 
       setProjects((prev) => [createdProject, ...prev]);
       toast.success("案件が登録されました。");
@@ -645,13 +658,26 @@ export default function ProjectsPage() {
     setProjectHolidayWeekdays(project.defaultHolidayWeekdays ?? []);
 
     try {
-      const [lines, wgs] = await Promise.all([getWorkLines(project.id), getWorkGroups()]);
+      const [lines, wgs, defaultIds, phases] = await Promise.all([
+        getWorkLines(project.id),
+        getWorkGroups(),
+        getProjectDefaultMemberIds(project.id),
+        getProjectPhases(project.id)
+      ]);
       const wgNames = new Map(wgs.map((wg) => [wg.name, wg.id]));
       const ids = lines.map((wl) => wgNames.get(wl.name)).filter((id): id is string => !!id);
       setSelectedWorkGroupIds([...new Set(ids)]);
+      setSelectedDefaultMemberIds(defaultIds);
+      if (phases.length > 0) {
+        setProjectPhasesState(phases.map((p) => ({ startDate: p.startDate, endDate: p.endDate, siteStatus: p.siteStatus })));
+      } else {
+        setProjectPhasesState([{ startDate: project.startDate, endDate: project.endDate, siteStatus: project.siteStatus ?? "組立" }]);
+      }
     } catch (error) {
       console.error("Failed to load work lines:", error);
       setSelectedWorkGroupIds([]);
+      setSelectedDefaultMemberIds([]);
+      setProjectPhasesState([]);
     }
 
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -678,17 +704,27 @@ export default function ProjectsPage() {
     const customerMatch = customers.find((c) => c.name === src.customerName);
     setSelectedCustomerId(customerMatch?.id ?? "");
 
-    // 作業班の選択状態をコピー（元案件の work_lines 名から work_groups を引く）
+    // 作業班・既定メンバー・工程をコピー
     try {
-      const [lines, wgs] = await Promise.all([getWorkLines(src.id), getWorkGroups()]);
+      const [lines, wgs, defaultIds, phases] = await Promise.all([
+        getWorkLines(src.id),
+        getWorkGroups(),
+        getProjectDefaultMemberIds(src.id),
+        getProjectPhases(src.id)
+      ]);
       const wgNames = new Map(wgs.map((wg) => [wg.name, wg.id]));
       const ids = lines
         .map((wl) => wgNames.get(wl.name))
         .filter((id): id is string => !!id);
       setSelectedWorkGroupIds([...new Set(ids)]);
+      setSelectedDefaultMemberIds(defaultIds);
+      if (phases.length > 0) {
+        setProjectPhasesState(phases.map((p) => ({ startDate: p.startDate, endDate: p.endDate, siteStatus: p.siteStatus })));
+      } else {
+        setProjectPhasesState([{ startDate: src.startDate, endDate: src.endDate, siteStatus: src.siteStatus ?? "組立" }]);
+      }
     } catch (error) {
-      console.error("Failed to copy work groups from project:", error);
-      // 失敗してもフォーム自体は使えるようにしておく
+      console.error("Failed to copy from project:", error);
     }
   };
 
@@ -720,8 +756,8 @@ export default function ProjectsPage() {
         contractType: form.contractType as ContractType,
         contractAmount: isUkeoi ? form.contractAmount ?? 0 : undefined,
         memo: form.memo?.trim() || undefined,
-        siteStatus: form.siteStatus as Project["siteStatus"] ?? "組立",
-        defaultHolidayWeekdays: projectHolidayWeekdays.length ? projectHolidayWeekdays : undefined,
+        siteStatus: (projectPhases[0]?.siteStatus ?? form.siteStatus ?? "組立") as Project["siteStatus"],
+        defaultHolidayWeekdays: projectHolidayWeekdays.length ? projectHolidayWeekdays : [],
         siteAddress: form.siteAddress,
         startDate: form.startDate,
         endDate: form.endDate
@@ -762,7 +798,12 @@ export default function ProjectsPage() {
           }
         }
       }
-      
+      await setProjectDefaultMembers(editingProject.id, selectedDefaultMemberIds);
+      const phasesToSave = projectPhases.length > 0
+        ? projectPhases
+        : [{ startDate: form.startDate, endDate: form.endDate, siteStatus: form.siteStatus ?? "組立" }];
+      await setProjectPhases(editingProject.id, phasesToSave);
+
       setProjects((prev) =>
         prev.map((p) => (p.id === updatedProject.id ? updatedProject : p))
       );
@@ -824,12 +865,44 @@ export default function ProjectsPage() {
       siteStatus: "組立"
     });
     setSelectedWorkGroupIds([]);
+    setSelectedDefaultMemberIds([]);
+    setProjectPhasesState([]);
     setErrors({});
     setProjectHolidayWeekdays([]);
   };
 
+  const addProjectPhase = () => {
+    const last = projectPhases[projectPhases.length - 1];
+    const base = last?.endDate || form.startDate || form.endDate || "";
+    setProjectPhasesState((prev) => [
+      ...prev,
+      { startDate: base, endDate: base, siteStatus: "組立" }
+    ]);
+  };
+
+  const removeProjectPhase = (index: number) => {
+    setProjectPhasesState((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const updateProjectPhase = (index: number, field: "startDate" | "endDate" | "siteStatus", value: string) => {
+    setProjectPhasesState((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      if (field === "startDate" && value > (next[index].endDate || "")) {
+        next[index].endDate = value;
+      }
+      return next;
+    });
+  };
+
   const toggleWorkGroupSelection = (id: string) => {
     setSelectedWorkGroupIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleDefaultMemberSelection = (id: string) => {
+    setSelectedDefaultMemberIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
@@ -953,9 +1026,6 @@ export default function ProjectsPage() {
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
                   <span className="text-[11px] text-theme-text-muted-strong">
                     {p.customerName}
-                  </span>
-                  <span className="text-[11px] inline-flex items-center px-1.5 py-0.5 rounded bg-theme-bg-elevated">
-                    {p.contractType}
                   </span>
                   {p.contractAmount && (
                     <span className="text-[11px] text-theme-text-muted">
@@ -1232,19 +1302,58 @@ export default function ProjectsPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="block mb-1">現場ステータス</label>
-                  <input
-                    list="project-site-status-list"
-                    className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
-                    value={form.siteStatus ?? ""}
-                    onChange={(e) => handleChange("siteStatus", e.target.value)}
-                    placeholder="例: 組立 / 解体 / 準備中 など自由入力"
-                  />
-                  <datalist id="project-site-status-list">
-                    <option value="組立" />
-                    <option value="解体" />
-                    <option value="準備中" />
-                  </datalist>
+                  <label className="block mb-1">工程（組立・解体など）</label>
+                  <p className="text-[11px] text-theme-text-muted mb-2">
+                    日単位で組立・解体などを設定できます。例: 2/16 組立（1日）、3/16 解体（1日）
+                  </p>
+                  <div className="space-y-2 max-h-48 overflow-y-auto rounded-md border border-theme-border bg-theme-bg-input p-2">
+                    {projectPhases.length === 0 ? (
+                      <p className="text-xs text-theme-text-muted">工程が未設定です。「工程を追加」で登録してください。</p>
+                    ) : (
+                      projectPhases.map((phase, i) => (
+                        <div key={i} className="flex flex-wrap items-center gap-2 p-2 rounded bg-theme-bg-elevated">
+                          <input
+                            type="date"
+                            className="rounded border border-theme-border px-2 py-1 text-[11px] bg-theme-bg-input text-theme-text"
+                            value={phase.startDate}
+                            onChange={(e) => updateProjectPhase(i, "startDate", e.target.value)}
+                          />
+                          <span className="text-theme-text-muted text-[11px]">〜</span>
+                          <input
+                            type="date"
+                            className="rounded border border-theme-border px-2 py-1 text-[11px] bg-theme-bg-input text-theme-text"
+                            value={phase.endDate}
+                            onChange={(e) => updateProjectPhase(i, "endDate", e.target.value)}
+                          />
+                          <select
+                            className="rounded border border-theme-border px-2 py-1 text-[11px] bg-theme-bg-input text-theme-text"
+                            value={phase.siteStatus}
+                            onChange={(e) => updateProjectPhase(i, "siteStatus", e.target.value)}
+                          >
+                            <option value="組立">組立</option>
+                            <option value="解体">解体</option>
+                            <option value="準備中">準備中</option>
+                            <option value="その他">その他</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => removeProjectPhase(i)}
+                            className="text-theme-text-muted hover:text-red-400 text-[11px] p-1"
+                            title="削除"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))
+                    )}
+                    <button
+                      type="button"
+                      onClick={addProjectPhase}
+                      className="w-full py-1.5 rounded border border-dashed border-theme-border text-[11px] text-theme-text-muted hover:bg-theme-bg-elevated"
+                    >
+                      ＋ 工程を追加
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="block mb-1">この案件の標準 週休日（曜日）</label>
@@ -1308,6 +1417,38 @@ export default function ProjectsPage() {
                             style={{ backgroundColor: wg.color ?? "#6b7280" }}
                           />
                           <span className="text-sm">{wg.name}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="block mb-1">既定メンバー（工程表で初期選択される）</label>
+                  <p className="text-[11px] text-theme-text-muted mb-2">
+                    「メンバー管理」で登録したメンバーを選択します。工程表で人員配置する際、このメンバーが初期選択されます。追加のメンバーも配置可能です。
+                  </p>
+                  <div className="space-y-2 max-h-40 overflow-y-auto rounded-md border border-theme-border bg-theme-bg-input p-2">
+                    {members.length === 0 ? (
+                      <p className="text-xs text-theme-text-muted">
+                        メンバー管理でメンバーを登録してください。
+                      </p>
+                    ) : (
+                      members.map((m) => (
+                        <label
+                          key={m.id}
+                          className="flex items-center gap-2 cursor-pointer hover:bg-theme-bg-elevated rounded px-2 py-1.5"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedDefaultMemberIds.includes(m.id)}
+                            onChange={() => toggleDefaultMemberSelection(m.id)}
+                            className="rounded border-theme-border"
+                          />
+                          <span
+                            className="w-3 h-3 rounded-full shrink-0"
+                            style={{ backgroundColor: m.color ?? "#6b7280" }}
+                          />
+                          <span className="text-sm">{m.name}</span>
                         </label>
                       ))
                     )}

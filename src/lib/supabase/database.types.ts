@@ -183,6 +183,55 @@ export interface Database {
           updated_at?: string
         }
       }
+      project_phases: {
+        Row: {
+          id: string
+          project_id: string
+          start_date: string
+          end_date: string
+          site_status: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          start_date: string
+          end_date: string
+          site_status: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          start_date?: string
+          end_date?: string
+          site_status?: string
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      project_default_members: {
+        Row: {
+          id: string
+          project_id: string
+          member_id: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          member_id: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          member_id?: string
+          created_at?: string
+        }
+      }
       work_lines: {
         Row: {
           id: string
