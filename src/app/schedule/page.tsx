@@ -81,6 +81,7 @@ const getWorkLineShortName = (name: string): string => {
 };
 
 const MOBILE_BREAKPOINT = 768;
+const WORK_LINE_ORDER_KEY = "schedule-work-line-order";
 
 function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = useState(false);
@@ -154,6 +155,19 @@ export default function SchedulePage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [customerMembers, setCustomerMembers] = useState<CustomerMember[]>([]);
   const [projectPhasesMap, setProjectPhasesMap] = useState<Map<string, { startDate: string; endDate: string; siteStatus: string }[]>>(new Map());
+  const [workLineOrder, setWorkLineOrder] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const s = localStorage.getItem(WORK_LINE_ORDER_KEY);
+      if (!s) return [];
+      const parsed = JSON.parse(s) as unknown;
+      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+    } catch {
+      return [];
+    }
+  });
+  const [draggedWorkLineId, setDraggedWorkLineId] = useState<string | null>(null);
+  const [dragOverWorkLineId, setDragOverWorkLineId] = useState<string | null>(null);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -321,7 +335,7 @@ export default function SchedulePage() {
     color?: string;
     workLineIds: string[];
   }
-  const mergedWorkLines = useMemo((): MergedWorkLine[] => {
+  const mergedWorkLinesRaw = useMemo((): MergedWorkLine[] => {
     const byName = new Map<string, { name: string; color?: string; ids: string[] }>();
     for (const wl of workLines) {
       const cur = byName.get(wl.name);
@@ -338,6 +352,33 @@ export default function SchedulePage() {
       workLineIds: v.ids
     }));
   }, [workLines]);
+
+  const mergedWorkLines = useMemo(() => {
+    if (workLineOrder.length === 0) return mergedWorkLinesRaw;
+    const orderMap = new Map(workLineOrder.map((id, i) => [id, i]));
+    return [...mergedWorkLinesRaw].sort((a, b) => {
+      const ia = orderMap.get(a.id) ?? 9999;
+      const ib = orderMap.get(b.id) ?? 9999;
+      if (ia !== ib) return ia - ib;
+      return a.name.localeCompare(b.name);
+    });
+  }, [mergedWorkLinesRaw, workLineOrder]);
+
+  const moveWorkLineOrder = (draggedId: string, targetId: string) => {
+    const currentOrder = mergedWorkLines.map((l) => l.id);
+    const dragIdx = currentOrder.indexOf(draggedId);
+    const targetIdx = currentOrder.indexOf(targetId);
+    if (dragIdx === -1 || targetIdx === -1 || dragIdx === targetIdx) return;
+    const next = [...currentOrder];
+    next.splice(dragIdx, 1);
+    next.splice(targetIdx, 0, draggedId);
+    setWorkLineOrder(next);
+    try {
+      localStorage.setItem(WORK_LINE_ORDER_KEY, JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+  };
 
   // 表示するワークグループをフィルタリング
   const displayedLines = useMemo(() => {
@@ -1188,14 +1229,39 @@ export default function SchedulePage() {
                 ) : (
                   displayedLines.map((line) => {
                   const isSelected = filteredWorkLineId === line.id;
+                  const isDragging = draggedWorkLineId === line.id;
+                  const isDragOver = dragOverWorkLineId === line.id;
                   return (
                     <tr
                       key={line.id}
-                      className={isSelected ? "bg-theme-bg-elevated/30" : ""}
+                      draggable
+                      onDragStart={(e) => {
+                        setDraggedWorkLineId(line.id);
+                        e.dataTransfer.effectAllowed = "move";
+                        e.dataTransfer.setData("text/plain", line.id);
+                        e.dataTransfer.setDragImage(e.currentTarget, 0, 0);
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        if (draggedWorkLineId && draggedWorkLineId !== line.id) setDragOverWorkLineId(line.id);
+                      }}
+                      onDragLeave={() => setDragOverWorkLineId(null)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setDragOverWorkLineId(null);
+                        const id = e.dataTransfer.getData("text/plain");
+                        if (id && id !== line.id) moveWorkLineOrder(id, line.id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedWorkLineId(null);
+                        setDragOverWorkLineId(null);
+                      }}
+                      className={`${isSelected ? "bg-theme-bg-elevated/30" : ""} ${isDragging ? "opacity-50" : ""} ${isDragOver ? "ring-2 ring-inset ring-accent" : ""}`}
                       style={{ minHeight: '110px' }}
                     >
                       <td
-                        className={`sticky left-0 z-10 border-t border-r border-theme-border px-2 py-2 text-left align-top overflow-hidden ${
+                        className={`sticky left-0 z-10 border-t border-r border-theme-border px-2 py-2 text-left align-top overflow-hidden cursor-grab active:cursor-grabbing ${
                           isSelected ? "bg-theme-bg-elevated/50" : "bg-theme-bg-input/60"
                         }`}
                         style={{
@@ -1205,7 +1271,7 @@ export default function SchedulePage() {
                           minWidth: isMobile ? "50px" : "100px",
                           minHeight: "110px",
                         }}
-                        title={line.name}
+                        title={`${line.name}（ドラッグで並び替え）`}
                       >
                         <div className="flex flex-col md:flex-row md:items-center items-start gap-1.5 min-w-0">
                           <span
@@ -1219,6 +1285,7 @@ export default function SchedulePage() {
                           >
                             {isMobile ? getWorkLineShortName(line.name) : line.name}
                           </span>
+                          <span className="ml-0.5 text-theme-text-muted shrink-0" aria-hidden>⋮⋮</span>
                         </div>
                       </td>
                     {days.map((d) => {
