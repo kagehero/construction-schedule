@@ -1245,7 +1245,7 @@ export default function SchedulePage() {
                           }`}
                           style={{ maxWidth: 0, verticalAlign: 'top', padding: 0, lineHeight: 'normal' }}
                         >
-                          <div className="w-full px-1.5 py-1.5 flex flex-col gap-1" style={{ minHeight: '110px', boxSizing: 'border-box' }}>
+                          <div className="w-full h-full px-1.5 py-1.5 flex flex-col gap-1" style={{ minHeight: '110px', boxSizing: 'border-box' }}>
                             {/* 案件名・工程（現場の状態に応じて色分け） */}
                             {project ? (
                                 <div className="flex items-center gap-1 flex-shrink-0">
@@ -1304,14 +1304,14 @@ export default function SchedulePage() {
                                 openSelection(activeWlId, iso);
                               }}
                               disabled={locked}
-                              className={`w-full px-1.5 py-0.5 text-left rounded min-w-0 overflow-hidden ${
+                              className={`w-full h-full min-h-[40px] px-1.5 py-0.5 rounded min-w-0 overflow-hidden flex flex-col ${
                                 locked
                                   ? "bg-theme-bg-input/40 text-theme-text-muted cursor-not-allowed"
                                   : "hover:bg-theme-bg-elevated/60"
                               }`}
-                              style={{ minHeight: '40px', flexShrink: 0 }}
+                              style={{ flexShrink: 0 }}
                           >
-                              <div className="flex flex-wrap gap-1 min-w-0 items-center">
+                              <div className="flex flex-wrap gap-1 min-w-0 items-center justify-center content-center flex-1">
                                 {isWeeklyHoliday ? (
                                   <div
                                     className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-rose-500/60 bg-rose-500/15 text-[11px] font-medium text-rose-200"
@@ -1334,7 +1334,7 @@ export default function SchedulePage() {
                                             <span
                                               key={a.id}
                                               title={member.name}
-                                              className="inline-flex flex-col items-center gap-0.5 flex-shrink-0 min-w-0"
+                                              className="inline-flex flex-col items-center justify-center gap-0.5 flex-shrink-0 min-w-0 text-center"
                                             >
                                               <span
                                                 className="inline-flex items-center justify-center w-6 h-6 rounded-full border-2 text-theme-text text-[10px] flex-shrink-0"
