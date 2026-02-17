@@ -1370,16 +1370,22 @@ export default function ProjectsPage() {
                             value={phase.endDate}
                             onChange={(e) => updateProjectPhase(i, "endDate", e.target.value)}
                           />
-                          <select
-                            className="rounded border border-theme-border px-2 py-1 text-[11px] bg-theme-bg-input text-theme-text"
+                          <input
+                            list={`phase-site-status-list-${i}`}
+                            type="text"
+                            className="rounded border border-theme-border px-2 py-1 text-[11px] bg-theme-bg-input text-theme-text min-w-[72px]"
                             value={phase.siteStatus}
                             onChange={(e) => updateProjectPhase(i, "siteStatus", e.target.value)}
-                          >
-                            <option value="組立">組立</option>
-                            <option value="解体">解体</option>
-                            <option value="準備中">準備中</option>
-                            <option value="その他">その他</option>
-                          </select>
+                            placeholder="例: 組立"
+                          />
+                          <datalist id={`phase-site-status-list-${i}`}>
+                            <option value="組立" />
+                            <option value="解体" />
+                            <option value="準備中" />
+                            <option value="搬入" />
+                            <option value="養生" />
+                            <option value="その他" />
+                          </datalist>
                           <button
                             type="button"
                             onClick={() => removeProjectPhase(i)}
