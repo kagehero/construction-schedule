@@ -1252,21 +1252,8 @@ export default function SchedulePage() {
                                     <span>休日</span>
                                   </div>
                                 ) : (
-                                  (() => {
-                                    // 列の幅に応じて表示できる人数を計算（各バッジは約28px、gapは4px）
-                                    // 画面幅に応じて表示人数を調整（スマートフォンではより少なく表示）
-                                    const maxVisible = isMobile ? 2 : 5;
-                                    const showAll = cellAssignments.length >= 10;
-                                    const visibleAssignments = showAll
-                                      ? cellAssignments
-                                      : cellAssignments.slice(0, maxVisible);
-                                    const remainingCount = showAll
-                                      ? 0
-                                      : cellAssignments.length - maxVisible;
-                                    
-                                    return (
-                                      <>
-                                        {visibleAssignments.map((a) => {
+                                  <>
+                                        {cellAssignments.map((a) => {
                                           const member =
                                             members.find(
                                               (m) => m.id === a.memberId
@@ -1293,17 +1280,7 @@ export default function SchedulePage() {
                                             </span>
                                           );
                                         })}
-                                        {remainingCount > 0 && (
-                                          <span 
-                                            className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full border border-theme-border bg-theme-bg-elevated text-[10px] text-theme-text-muted-strong flex-shrink-0"
-                                            title={`他${remainingCount}名`}
-                                          >
-                                            +{remainingCount}
-                                          </span>
-                                        )}
                                       </>
-                                    );
-                                  })()
                                 )}
                               </div>
                           </button>
