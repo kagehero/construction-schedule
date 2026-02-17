@@ -589,6 +589,28 @@ export default function ProjectsPage() {
     setIsSubmitting(true);
 
     try {
+      // 同一作業班名・重複日付のチェック（他案件との重複を禁止）
+      const allLines = await getWorkLines();
+      const selectedGroupNames = new Set(
+        workGroups.filter((wg) => selectedWorkGroupIds.includes(wg.id)).map((wg) => wg.name)
+      );
+      for (const wl of allLines) {
+        if (!selectedGroupNames.has(wl.name)) continue;
+        const existingProject = projects.find((p) => p.id === wl.projectId);
+        if (!existingProject) continue;
+        const start = form.startDate <= form.endDate ? form.startDate : form.endDate;
+        const end = form.startDate <= form.endDate ? form.endDate : form.startDate;
+        const exStart = existingProject.startDate;
+        const exEnd = existingProject.endDate;
+        const overlapStart = start <= exEnd && exStart <= end ? (exStart > start ? exStart : start) : null;
+        const overlapEnd = start <= exEnd && exStart <= end ? (exEnd < end ? exEnd : end) : null;
+        if (overlapStart && overlapEnd) {
+          toast.error(`${overlapStart}は、案件「${existingProject.siteName}」がすでに登録されているため、現在の案件を登録できません。`);
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       const newProject: Omit<Project, 'id'> = {
         title: form.title || form.siteName, // Use siteName as title if title is empty
         customerId: selectedCustomerIdForSave,
@@ -748,6 +770,29 @@ export default function ProjectsPage() {
     setIsSubmitting(true);
 
     try {
+      // 同一作業班名・重複日付のチェック（他案件との重複を禁止）
+      const allLines = await getWorkLines();
+      const selectedGroupNames = new Set(
+        workGroups.filter((wg) => selectedWorkGroupIds.includes(wg.id)).map((wg) => wg.name)
+      );
+      const start = form.startDate <= form.endDate ? form.startDate : form.endDate;
+      const end = form.startDate <= form.endDate ? form.endDate : form.startDate;
+      for (const wl of allLines) {
+        if (!selectedGroupNames.has(wl.name)) continue;
+        if (wl.projectId === editingProject.id) continue; // 自案件は除外
+        const existingProject = projects.find((p) => p.id === wl.projectId);
+        if (!existingProject) continue;
+        const exStart = existingProject.startDate;
+        const exEnd = existingProject.endDate;
+        const overlapStart = start <= exEnd && exStart <= end ? (exStart > start ? exStart : start) : null;
+        const overlapEnd = start <= exEnd && exStart <= end ? (exEnd < end ? exEnd : end) : null;
+        if (overlapStart && overlapEnd) {
+          toast.error(`${overlapStart}は、案件「${existingProject.siteName}」がすでに登録されているため、現在の案件を登録できません。`);
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       const updateData: Partial<Omit<Project, 'id'>> = {
         title: form.title || form.siteName,
         customerId: selectedCustomerIdForSave,

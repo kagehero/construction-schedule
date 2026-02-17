@@ -314,17 +314,70 @@ export default function SchedulePage() {
     }
   }, [currentWeekStart, isLoadingData, workLines.length]);
 
+  // 作業班名で統合（同一名は1行に集約）
+  interface MergedWorkLine {
+    id: string;
+    name: string;
+    color?: string;
+    workLineIds: string[];
+  }
+  const mergedWorkLines = useMemo((): MergedWorkLine[] => {
+    const byName = new Map<string, { name: string; color?: string; ids: string[] }>();
+    for (const wl of workLines) {
+      const cur = byName.get(wl.name);
+      if (!cur) {
+        byName.set(wl.name, { name: wl.name, color: wl.color, ids: [wl.id] });
+      } else {
+        cur.ids.push(wl.id);
+      }
+    }
+    return Array.from(byName.entries()).map(([name, v]) => ({
+      id: name,
+      name,
+      color: v.color,
+      workLineIds: v.ids
+    }));
+  }, [workLines]);
+
   // 表示するワークグループをフィルタリング
   const displayedLines = useMemo(() => {
-    if (!filteredWorkLineId) return workLines;
-    return workLines.filter((line) => line.id === filteredWorkLineId);
-  }, [filteredWorkLineId, workLines]);
+    if (!filteredWorkLineId) return mergedWorkLines;
+    return mergedWorkLines.filter((line) => line.id === filteredWorkLineId);
+  }, [filteredWorkLineId, mergedWorkLines]);
+
+  // 統合行・日付に対する有効な work_line_id（その日の案件に紐づくものを優先）
+  const getActiveWorkLineId = (merged: MergedWorkLine, date: string): string => {
+    for (const wlId of merged.workLineIds) {
+      const wl = workLines.find((w) => w.id === wlId);
+      if (!wl?.projectId) continue;
+      const project = projects.find((p) => p.id === wl.projectId);
+      if (!project) continue;
+      if (date >= project.startDate && date <= project.endDate) return wlId;
+    }
+    return merged.workLineIds[0] ?? "";
+  };
+
+  // 統合行・日付に対する案件
+  const getProjectForMergedCell = (merged: MergedWorkLine, date: string): Project | null => {
+    const wlId = getActiveWorkLineId(merged, date);
+    return getProjectForWorkLine(wlId, date);
+  };
 
   // 案件に紐づく取引先（ビジネスパートナー）メンバーを取得
   const getBPMembersForProject = (project: Project | null): CustomerMember[] => {
     if (!project?.customerId) return [];
     return customerMembers.filter((m) => m.customerId === project.customerId);
   };
+
+  // 統合セルの割り当て（複数 work_line を集約）
+  const getCellAssignmentsForMerged = (merged: MergedWorkLine, iso: string) =>
+    assignments.filter(
+      (a) => merged.workLineIds.includes(a.workLineId) && a.date === iso && !a.isHoliday
+    );
+
+  // 統合セルのロック状態（いずれかがロックならロック）
+  const isCellLockedForMerged = (merged: MergedWorkLine, iso: string) =>
+    merged.workLineIds.some((id) => isCellLocked(id, iso));
 
   // セルの日付に対する工程ステータス（組立・解体など）を取得
   const getPhaseStatusForCell = (workLineId: string, date: string): string | null => {
@@ -592,7 +645,7 @@ export default function SchedulePage() {
   };
 
   const handleBulkAssign = async (
-    workLineId?: string,
+    workLineIdOrMergedId?: string,
     startDate?: string,
     endDate?: string,
     memberIds?: string[],
@@ -602,7 +655,7 @@ export default function SchedulePage() {
       toast.error('この操作は管理者のみ実行できます。閲覧者権限では編集操作はできません。');
       return;
     }
-    const finalWorkLineId = workLineId ?? selectedWorkLineId;
+    const finalId = workLineIdOrMergedId ?? selectedWorkLineId;
     const finalStartDate = startDate ?? modalRangeStart;
     const finalEndDate = endDate ?? modalRangeEnd;
     const finalMemberIds = memberIds ?? selectedMemberIds;
@@ -612,11 +665,10 @@ export default function SchedulePage() {
       !finalStartDate ||
       !finalEndDate ||
       finalMemberIds.length === 0 ||
-      !finalWorkLineId
+      !finalId
     )
       return;
     
-    // Validate member IDs exist in database
     const invalidMemberIds = finalMemberIds.filter(
       (memberId) => !members.some((m) => m.id === memberId)
     );
@@ -625,38 +677,53 @@ export default function SchedulePage() {
       return;
     }
     
+    const merged = mergedWorkLines.find((m) => m.id === finalId);
+    
     try {
-      // Delete existing assignments for the date range
       const start = new Date(finalStartDate);
       const end = new Date(finalEndDate);
-      const days = [];
+      const days: string[] = [];
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         days.push(format(d, "yyyy-MM-dd"));
       }
       
-      // Delete assignments for each day in the range
       for (const day of days) {
-        await deleteAssignments(finalWorkLineId, day);
+        const idsToDelete = merged ? merged.workLineIds : [finalId];
+        for (const wlId of idsToDelete) {
+          await deleteAssignments(wlId, day);
+        }
       }
       
-      // Create new assignments
-      const assignmentsToCreate = createAssignmentsForRange({
-        workLineId: finalWorkLineId,
-        memberIds: finalMemberIds,
-        startDate: finalStartDate,
-        endDate: finalEndDate,
-        holidayWeekdays: finalHolidayWeekdays
-      });
+      const byWorkLine = new Map<string, string[]>();
+      for (const day of days) {
+        const wlId = merged ? getActiveWorkLineId(merged, day) : finalId;
+        const arr = byWorkLine.get(wlId) ?? [];
+        arr.push(day);
+        byWorkLine.set(wlId, arr);
+      }
       
-      const created = await createAssignments(assignmentsToCreate);
+      const allCreated: Assignment[] = [];
+      for (const [wlId, wlDays] of byWorkLine) {
+        if (wlDays.length === 0) continue;
+        const wlStart = wlDays[0]!;
+        const wlEnd = wlDays[wlDays.length - 1]!;
+        const toCreate = createAssignmentsForRange({
+          workLineId: wlId,
+          memberIds: finalMemberIds,
+          startDate: wlStart,
+          endDate: wlEnd,
+          holidayWeekdays: finalHolidayWeekdays
+        });
+        const created = await createAssignments(toCreate);
+        allCreated.push(...created);
+      }
       
-      // Update local state
       setAssignments((prev) => {
-        const keys = new Set(created.map((c) => `${c.workLineId}-${c.date}`));
+        const keys = new Set(allCreated.map((c) => `${c.workLineId}-${c.date}`));
         const filtered = prev.filter(
           (a) => !keys.has(`${a.workLineId}-${a.date}`)
         );
-        return [...filtered, ...created];
+        return [...filtered, ...allCreated];
       });
       
       toast.success("期間のメンバー割り当てを保存しました。");
@@ -680,7 +747,10 @@ export default function SchedulePage() {
     setModalHolidayWeekdays([...holidayWeekdays]);
     // 選択された作業班の案件の既定メンバーを初期選択として設定
     let initialMemberIds = selectedMemberIds;
-    const wl = workLines.find((l) => l.id === selectedWorkLineId);
+    const merged = mergedWorkLines.find((m) => m.id === selectedWorkLineId);
+    const wl = merged
+      ? workLines.find((l) => merged.workLineIds.includes(l.id))
+      : workLines.find((l) => l.id === selectedWorkLineId);
     if (wl?.projectId) {
       try {
         const defaultIds = await getProjectDefaultMemberIds(wl.projectId);
@@ -751,7 +821,7 @@ export default function SchedulePage() {
   const dailyWorkload = useMemo(() => {
     return days.map((d) => {
       const total = displayedLines.reduce(
-        (sum, line) => sum + getCellAssignments(line.id, d.iso).length,
+        (sum, line) => sum + getCellAssignmentsForMerged(line, d.iso).length,
         0
       );
       return { iso: d.iso, count: total };
@@ -782,7 +852,7 @@ export default function SchedulePage() {
                   }}
                 >
                   <option value="">すべて表示</option>
-                  {workLines.map((line) => (
+                  {mergedWorkLines.map((line) => (
                     <option key={line.id} value={line.id}>
                       {line.name}
                     </option>
@@ -875,8 +945,8 @@ export default function SchedulePage() {
                           setFilteredWorkLineId(value);
                         }}
                       >
-                        <option value="">すべて表示</option>
-                        {workLines.map((line) => (
+                        <option value="">選択してください</option>
+                        {mergedWorkLines.map((line) => (
                           <option key={line.id} value={line.id}>
                             {line.name}
                           </option>
@@ -951,8 +1021,8 @@ export default function SchedulePage() {
                   setFilteredWorkLineId(value); // テーブル表示も同時に更新
                 }}
               >
-                <option value="">すべて表示</option>
-                {workLines.map((line) => (
+                <option value="">選択してください</option>
+                {mergedWorkLines.map((line) => (
                   <option key={line.id} value={line.id}>
                     {line.name}
                   </option>
@@ -1140,7 +1210,7 @@ export default function SchedulePage() {
                         <div className="flex flex-col md:flex-row md:items-center items-start gap-1.5 min-w-0">
                           <span
                             className="inline-block w-2 h-6 md:h-8 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: line.color }}
+                            style={{ backgroundColor: line.color ?? "#6b7280" }}
                           />
                           <span
                             className={`text-[11px] md:text-xs truncate text-theme-text ${
@@ -1153,13 +1223,14 @@ export default function SchedulePage() {
                       </td>
                     {days.map((d) => {
                       const iso = d.iso;
-                      const cellAssignments = getCellAssignments(line.id, iso);
-                      const locked = isCellLocked(line.id, iso);
-                      const project = getProjectForWorkLine(line.id, iso);
+                      const activeWlId = getActiveWorkLineId(line, iso);
+                      const cellAssignments = getCellAssignmentsForMerged(line, iso);
+                      const locked = isCellLockedForMerged(line, iso);
+                      const project = getProjectForMergedCell(line, iso);
                       const weekday = new Date(iso).getDay();
                       const isWeeklyHoliday =
                         project?.defaultHolidayWeekdays?.includes(weekday) ?? false;
-                      const phaseStatus = getPhaseStatusForCell(line.id, iso);
+                      const phaseStatus = getPhaseStatusForCell(activeWlId, iso);
                       // 案件とメンバーが割り当てられているかチェック
                       const hasProjectAndMembers = project !== null && cellAssignments.length > 0;
                       return (
@@ -1230,7 +1301,7 @@ export default function SchedulePage() {
                             type="button"
                               onClick={() => {
                                 if (locked) return;
-                                openSelection(line.id, iso);
+                                openSelection(activeWlId, iso);
                               }}
                               disabled={locked}
                               className={`w-full px-1.5 py-0.5 text-left rounded min-w-0 overflow-hidden ${
@@ -1291,7 +1362,7 @@ export default function SchedulePage() {
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    if (!isPastDate(iso)) toggleLock(line.id, iso);
+                                    if (!isPastDate(iso)) toggleLock(activeWlId, iso);
                                   }}
                                   disabled={isPastDate(iso) && !monthEndVerifyMode}
                                   className={`w-6 h-6 rounded-full flex items-center justify-center text-xs transition-all flex-shrink-0 ${
@@ -1645,7 +1716,10 @@ export default function SchedulePage() {
                   onChange={async (e) => {
                     const value = e.target.value;
                     setModalWorkLineId(value);
-                    const wl = workLines.find((line) => line.id === value);
+                    const merged = mergedWorkLines.find((m) => m.id === value);
+                    const wl = merged
+                      ? workLines.find((l) => merged.workLineIds.includes(l.id))
+                      : workLines.find((line) => line.id === value);
                     if (wl) {
                       const proj = projects.find((p) => p.id === wl.projectId);
                       if (proj) {
@@ -1665,7 +1739,7 @@ export default function SchedulePage() {
                   }}
                 >
                   <option value="">選択してください</option>
-                  {workLines.map((line) => (
+                  {mergedWorkLines.map((line) => (
                     <option key={line.id} value={line.id}>
                       {line.name}
                     </option>
