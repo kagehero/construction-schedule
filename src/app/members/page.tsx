@@ -36,7 +36,14 @@ export default function MembersPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editModalClosing, setEditModalClosing] = useState(false);
   const [editModalAnimatingIn, setEditModalAnimatingIn] = useState(false);
+  const [memberSearch, setMemberSearch] = useState("");
   const { isAdmin, signOut, profile } = useAuth();
+
+  const filteredMembers = memberSearch.trim()
+    ? members.filter((m) =>
+        m.name.toLowerCase().includes(memberSearch.trim().toLowerCase())
+      )
+    : members;
 
   // 追加モーダル: 開閉アニメーション
   useEffect(() => {
@@ -265,6 +272,23 @@ export default function MembersPage() {
       <div className="flex-1 overflow-auto p-3 md:p-4">
         <Card title="メンバー一覧">
           <div className="space-y-2 text-xs max-h-[calc(100vh-140px)] overflow-auto pr-1" >
+            {!isLoading && members.length > 0 && (
+              <div className="sticky top-0 z-10 bg-theme-card pb-2 -mt-1 pt-1">
+                <input
+                  type="search"
+                  placeholder="メンバー名で検索..."
+                  value={memberSearch}
+                  onChange={(e) => setMemberSearch(e.target.value)}
+                  className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2 text-sm placeholder:text-theme-text-muted"
+                  aria-label="メンバーを検索"
+                />
+                {memberSearch.trim() && (
+                  <p className="mt-1 text-[11px] text-theme-text-muted">
+                    {filteredMembers.length}件 / {members.length}件
+                  </p>
+                )}
+              </div>
+            )}
             {errors.submit && !isLoading && (
               <div className="mb-2 p-2 bg-red-900/20 border border-red-800 rounded-md">
                 <p className="text-xs text-red-400">{errors.submit}</p>
@@ -277,7 +301,7 @@ export default function MembersPage() {
               <p className="text-theme-text-muted text-xs">読み込み中...</p>
             ) : (
               <>
-            {members.map((m) => (
+            {filteredMembers.map((m) => (
               <div
                 key={m.id}
                 className="rounded-lg border border-theme-border bg-theme-bg-input text-theme-text px-3 py-2"
@@ -305,9 +329,9 @@ export default function MembersPage() {
                   </div>
                 </div>
             ))}
-            {members.length === 0 && (
+            {filteredMembers.length === 0 && (
               <p className="text-theme-text-muted text-xs">
-                まだメンバーが登録されていません。
+                {memberSearch.trim() ? "検索に一致するメンバーがありません。" : "まだメンバーが登録されていません。"}
               </p>
                 )}
               </>

@@ -150,6 +150,8 @@ export default function SchedulePage() {
   const [modalRangeEnd, setModalRangeEnd] = useState<string>("");
   const [modalMemberIds, setModalMemberIds] = useState<string[]>([]);
   const [modalHolidayWeekdays, setModalHolidayWeekdays] = useState<number[]>([]);
+  const [selectionMemberSearch, setSelectionMemberSearch] = useState("");
+  const [bulkMemberSearch, setBulkMemberSearch] = useState("");
   const [workLines, setWorkLines] = useState<WorkLine[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
@@ -222,6 +224,7 @@ export default function SchedulePage() {
       setSelection(null);
       setSelectionModalClosing(false);
       setSelectionModalAnimatingIn(false);
+      setSelectionMemberSearch("");
     }, 220);
     return () => clearTimeout(t);
   }, [selectionModalClosing]);
@@ -241,6 +244,7 @@ export default function SchedulePage() {
       setShowBulkAssignModal(false);
       setBulkAssignModalClosing(false);
       setBulkAssignModalAnimatingIn(false);
+      setBulkMemberSearch("");
     }, 220);
     return () => clearTimeout(t);
   }, [bulkAssignModalClosing]);
@@ -1670,8 +1674,23 @@ export default function SchedulePage() {
                 <div className="mb-1 text-[11px] text-theme-text-muted-strong">
                   登録済みメンバー（複数選択可）
                 </div>
+                {members.length > 5 && (
+                  <input
+                    type="search"
+                    placeholder="メンバー名で検索..."
+                    value={selectionMemberSearch}
+                    onChange={(e) => setSelectionMemberSearch(e.target.value)}
+                    className="w-full rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-2 py-1.5 text-[11px] mb-1.5 placeholder:text-theme-text-muted"
+                    aria-label="メンバーを検索"
+                  />
+                )}
                 <div className="flex flex-wrap gap-1">
-                  {members.map((m) => (
+                  {(selectionMemberSearch.trim()
+                    ? members.filter((m) =>
+                        m.name.toLowerCase().includes(selectionMemberSearch.trim().toLowerCase())
+                      )
+                    : members
+                  ).map((m) => (
                     <button
                       key={m.id}
                       type="button"
@@ -1833,6 +1852,16 @@ export default function SchedulePage() {
               </div>
               <div>
                 <label className="block mb-1 text-[11px] text-theme-text-muted-strong">対象メンバー（複数選択可）</label>
+                {members.length > 5 && (
+                  <input
+                    type="search"
+                    placeholder="メンバー名で検索..."
+                    value={bulkMemberSearch}
+                    onChange={(e) => setBulkMemberSearch(e.target.value)}
+                    className="w-full rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-2 py-1.5 text-[11px] mb-1.5 placeholder:text-theme-text-muted"
+                    aria-label="メンバーを検索"
+                  />
+                )}
                 {isMobile ? (
                   <>
                     {/* サマリー表示（2〜3名 + 残りは +数字） */}
@@ -1888,7 +1917,12 @@ export default function SchedulePage() {
                     {/* 折りたたみ可能な全メンバー一覧 */}
                     {showModalMemberPickerMobile && (
                       <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto p-2 bg-theme-bg-elevated/50 rounded-md">
-                        {members.map((m) => (
+                        {(bulkMemberSearch.trim()
+                          ? members.filter((m) =>
+                              m.name.toLowerCase().includes(bulkMemberSearch.trim().toLowerCase())
+                            )
+                          : members
+                        ).map((m) => (
                           <button
                             key={m.id}
                             type="button"
@@ -1908,7 +1942,12 @@ export default function SchedulePage() {
                   </>
                 ) : (
                   <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto p-2 bg-theme-bg-elevated/50 rounded-md">
-                    {members.map((m) => (
+                    {(bulkMemberSearch.trim()
+                      ? members.filter((m) =>
+                          m.name.toLowerCase().includes(bulkMemberSearch.trim().toLowerCase())
+                        )
+                      : members
+                    ).map((m) => (
                       <button
                         key={m.id}
                         type="button"

@@ -117,8 +117,34 @@ export default function ProjectsPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [selectedDefaultMemberIds, setSelectedDefaultMemberIds] = useState<string[]>([]);
   const [projectPhases, setProjectPhasesState] = useState<{ startDate: string; endDate: string; siteStatus: string }[]>([]);
+  // 一覧検索（案件・作業班・取引先・フォーム内メンバー）
+  const [projectSearch, setProjectSearch] = useState("");
+  const [workGroupSearch, setWorkGroupSearch] = useState("");
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [formDefaultMemberSearch, setFormDefaultMemberSearch] = useState("");
 
   const showForm = showNewProjectForm || !!editingProject;
+
+  /** 検索クエリに一致するか（部分一致・大文字小文字無視） */
+  const matchSearch = (query: string, ...texts: (string | undefined | null)[]) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return texts.some((t) => t != null && String(t).toLowerCase().includes(q));
+  };
+  const filteredProjects = projects.filter(
+    (p) =>
+      matchSearch(projectSearch, p.siteName, p.customerName, p.siteAddress, p.title)
+  );
+  const filteredWorkGroups = workGroups.filter((wg) =>
+    matchSearch(workGroupSearch, wg.name)
+  );
+  const filteredCustomers = customers.filter(
+    (c) =>
+      matchSearch(customerSearch, c.name, c.address, c.contactPerson, c.phone)
+  );
+  const filteredFormMembers = members.filter((m) =>
+    matchSearch(formDefaultMemberSearch, m.name)
+  );
 
   // モーダル表示時: マウント後に開くアニメーション開始
   useEffect(() => {
@@ -1013,6 +1039,23 @@ export default function ProjectsPage() {
         {activeTab === "projects" && (
         <Card title="案件一覧">
           <div className="space-y-2 text-xs max-h-[calc(100vh-140px)] overflow-auto pr-1">
+            {!isLoading && projects.length > 0 && (
+              <div className="sticky top-0 z-10 bg-theme-card pb-2 -mt-1 pt-1">
+                <input
+                  type="search"
+                  placeholder="現場名・取引先・住所で検索..."
+                  value={projectSearch}
+                  onChange={(e) => setProjectSearch(e.target.value)}
+                  className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2 text-sm placeholder:text-theme-text-muted"
+                  aria-label="案件を検索"
+                />
+                {projectSearch.trim() && (
+                  <p className="mt-1 text-[11px] text-theme-text-muted">
+                    {filteredProjects.length}件 / {projects.length}件
+                  </p>
+                )}
+              </div>
+            )}
             {errors.submit && !isLoading && (
               <div className="mb-2 p-2 bg-red-900/20 border border-red-800 rounded-md">
                 <p className="text-xs text-red-400">{errors.submit}</p>
@@ -1025,7 +1068,7 @@ export default function ProjectsPage() {
               <p className="text-theme-text-muted text-xs">読み込み中...</p>
             ) : (
               <>
-            {projects.map((p) => (
+            {filteredProjects.map((p) => (
               <div
                 key={p.id}
                 className="rounded-lg border border-theme-border bg-theme-bg-elevated text-theme-text px-3 py-2"
@@ -1083,9 +1126,9 @@ export default function ProjectsPage() {
                 </div>
               </div>
             ))}
-            {projects.length === 0 && (
+            {filteredProjects.length === 0 && (
               <p className="text-theme-text-muted text-xs">
-                まだ案件が登録されていません。
+                {projectSearch.trim() ? "検索に一致する案件がありません。" : "まだ案件が登録されていません。"}
               </p>
                 )}
               </>
@@ -1097,14 +1140,35 @@ export default function ProjectsPage() {
         {activeTab === "work_lines" && (
           <Card title="作業班マスター">
             <div className="space-y-2 text-xs max-h-[calc(100vh-180px)] overflow-auto pr-1">
+              {!workGroupsLoading && workGroups.length > 0 && (
+                <div className="sticky top-0 z-10 bg-theme-card pb-2 -mt-1 pt-1">
+                  <input
+                    type="search"
+                    placeholder="作業班名で検索..."
+                    value={workGroupSearch}
+                    onChange={(e) => setWorkGroupSearch(e.target.value)}
+                    className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2 text-sm placeholder:text-theme-text-muted"
+                    aria-label="作業班を検索"
+                  />
+                  {workGroupSearch.trim() && (
+                    <p className="mt-1 text-[11px] text-theme-text-muted">
+                      {filteredWorkGroups.length}件 / {workGroups.length}件
+                    </p>
+                  )}
+                </div>
+              )}
               {workGroupsLoading ? (
                 <p className="text-theme-text-muted text-xs">読み込み中...</p>
               ) : workGroups.length === 0 ? (
                 <p className="text-theme-text-muted text-xs">
                   まだ作業班が登録されていません。「作業班追加」から追加してください。案件登録時にプルダウンで選択できます。
                 </p>
+              ) : filteredWorkGroups.length === 0 ? (
+                <p className="text-theme-text-muted text-xs">
+                  検索に一致する作業班がありません。
+                </p>
               ) : (
-                workGroups.map((wg) => (
+                filteredWorkGroups.map((wg) => (
                   <div
                     key={wg.id}
                     className="rounded-lg border border-theme-border bg-theme-bg-input text-theme-text px-3 py-2 flex items-center justify-between gap-2"
@@ -1143,14 +1207,35 @@ export default function ProjectsPage() {
         {activeTab === "customers" && (
           <Card title="取引先会社一覧">
             <div className="space-y-2 text-xs max-h-[calc(100vh-180px)] overflow-auto pr-1">
+              {!customersLoading && customers.length > 0 && (
+                <div className="sticky top-0 z-10 bg-theme-card pb-2 -mt-1 pt-1">
+                  <input
+                    type="search"
+                    placeholder="会社名・担当者・電話・住所で検索..."
+                    value={customerSearch}
+                    onChange={(e) => setCustomerSearch(e.target.value)}
+                    className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2 text-sm placeholder:text-theme-text-muted"
+                    aria-label="取引先を検索"
+                  />
+                  {customerSearch.trim() && (
+                    <p className="mt-1 text-[11px] text-theme-text-muted">
+                      {filteredCustomers.length}件 / {customers.length}件
+                    </p>
+                  )}
+                </div>
+              )}
               {customersLoading ? (
                 <p className="text-theme-text-muted text-xs">読み込み中...</p>
               ) : customers.length === 0 ? (
                 <p className="text-theme-text-muted text-xs">
                   まだ取引先会社が登録されていません。「取引先追加」から追加してください。
                 </p>
+              ) : filteredCustomers.length === 0 ? (
+                <p className="text-theme-text-muted text-xs">
+                  検索に一致する取引先がありません。
+                </p>
               ) : (
-                customers.map((c) => (
+                filteredCustomers.map((c) => (
                   <div
                     key={c.id}
                     className="rounded-lg border border-theme-border bg-theme-bg-input text-theme-text px-3 py-2 flex items-center justify-between gap-2"
@@ -1478,13 +1563,27 @@ export default function ProjectsPage() {
                   <p className="text-[11px] text-theme-text-muted mb-2">
                     「メンバー管理」で登録したメンバーを選択します。工程表で人員配置する際、このメンバーが初期選択されます。追加のメンバーも配置可能です。
                   </p>
+                  {members.length > 3 && (
+                    <input
+                      type="search"
+                      placeholder="メンバー名で検索..."
+                      value={formDefaultMemberSearch}
+                      onChange={(e) => setFormDefaultMemberSearch(e.target.value)}
+                      className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-2 py-1.5 text-sm mb-2 placeholder:text-theme-text-muted"
+                      aria-label="既定メンバーを検索"
+                    />
+                  )}
                   <div className="space-y-2 max-h-40 overflow-y-auto rounded-md border border-theme-border bg-theme-bg-input p-2">
                     {members.length === 0 ? (
                       <p className="text-xs text-theme-text-muted">
                         メンバー管理でメンバーを登録してください。
                       </p>
+                    ) : filteredFormMembers.length === 0 ? (
+                      <p className="text-xs text-theme-text-muted">
+                        検索に一致するメンバーがありません。
+                      </p>
                     ) : (
-                      members.map((m) => (
+                      filteredFormMembers.map((m) => (
                         <label
                           key={m.id}
                           className="flex items-center gap-2 cursor-pointer hover:bg-theme-bg-elevated rounded px-2 py-1.5"

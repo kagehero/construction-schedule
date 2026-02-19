@@ -11,6 +11,17 @@ export default function DashboardPage() {
   const { profile } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [projectSearch, setProjectSearch] = useState("");
+
+  const filteredProjects = projectSearch.trim()
+    ? projects.filter(
+        (p) =>
+          p.siteName?.toLowerCase().includes(projectSearch.trim().toLowerCase()) ||
+          p.customerName?.toLowerCase().includes(projectSearch.trim().toLowerCase()) ||
+          p.siteAddress?.toLowerCase().includes(projectSearch.trim().toLowerCase()) ||
+          p.title?.toLowerCase().includes(projectSearch.trim().toLowerCase())
+      )
+    : projects;
 
   useEffect(() => {
     loadProjects();
@@ -42,11 +53,28 @@ export default function DashboardPage() {
           <div className="max-w-7xl mx-auto space-y-6">
             <Card title="案件一覧">
               <div className="space-y-2 text-xs max-h-[calc(100vh-200px)] overflow-auto pr-1">
+                {!isLoading && projects.length > 0 && (
+                  <div className="sticky top-0 z-10 bg-theme-card pb-2 -mt-1 pt-1">
+                    <input
+                      type="search"
+                      placeholder="現場名・取引先・住所で検索..."
+                      value={projectSearch}
+                      onChange={(e) => setProjectSearch(e.target.value)}
+                      className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2 text-sm placeholder:text-theme-text-muted"
+                      aria-label="案件を検索"
+                    />
+                    {projectSearch.trim() && (
+                      <p className="mt-1 text-[11px] text-theme-text-muted">
+                        {filteredProjects.length}件 / {projects.length}件
+                      </p>
+                    )}
+                  </div>
+                )}
                 {isLoading ? (
                   <p className="text-theme-text-muted text-xs">読み込み中...</p>
                 ) : (
                   <>
-                    {projects.map((p) => (
+                    {filteredProjects.map((p) => (
                       <div
                         key={p.id}
                         className="rounded-lg border border-theme-border bg-theme-bg-elevated text-theme-text px-3 py-2"
@@ -74,9 +102,9 @@ export default function DashboardPage() {
                         </div>
                       </div>
                     ))}
-                    {projects.length === 0 && (
+                    {filteredProjects.length === 0 && (
                       <p className="text-theme-text-muted text-xs">
-                        まだ案件が登録されていません。
+                        {projectSearch.trim() ? "検索に一致する案件がありません。" : "まだ案件が登録されていません。"}
                       </p>
                     )}
                   </>
