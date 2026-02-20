@@ -113,6 +113,7 @@ export default function ProjectsPage() {
   const [customersLoading, setCustomersLoading] = useState(false);
   const { isAdmin, signOut, profile } = useAuth();
   const [copySourceProjectId, setCopySourceProjectId] = useState<string>("");
+  const [copySourceProjectInput, setCopySourceProjectInput] = useState("");
   const [projectHolidayWeekdays, setProjectHolidayWeekdays] = useState<number[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [selectedDefaultMemberIds, setSelectedDefaultMemberIds] = useState<string[]>([]);
@@ -145,6 +146,21 @@ export default function ProjectsPage() {
   const filteredFormMembers = members.filter((m) =>
     matchSearch(formDefaultMemberSearch, m.name)
   );
+
+  /** 過去案件コピー用の一意ラベル（現場名・取引先・期間） */
+  const getCopySourceProjectLabel = (p: Project) =>
+    `${p.siteName}（${p.customerName}） ${p.startDate}～${p.endDate}`;
+
+  const handleCopySourceProjectInputChange = (value: string) => {
+    setCopySourceProjectInput(value);
+    const matched = projects.find((p) => getCopySourceProjectLabel(p) === value.trim());
+    if (matched) {
+      setCopySourceProjectId(matched.id);
+      handleCopyFromProject(matched.id);
+    } else {
+      setCopySourceProjectId("");
+    }
+  };
 
   // モーダル表示時: マウント後に開くアニメーション開始
   useEffect(() => {
@@ -181,6 +197,8 @@ export default function ProjectsPage() {
       setProjectHolidayWeekdays([]);
       setSelectedDefaultMemberIds([]);
       setProjectPhasesState([]);
+      setCopySourceProjectId("");
+      setCopySourceProjectInput("");
       setErrors({});
     }, 220);
     return () => clearTimeout(t);
@@ -1310,24 +1328,19 @@ export default function ProjectsPage() {
                 {!editingProject && projects.length > 0 && (
                   <div>
                     <label className="block mb-1">過去案件からコピー（任意）</label>
-                    <select
+                    <input
+                      list="project-copy-source-list"
                       className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
-                      value={copySourceProjectId}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setCopySourceProjectId(value);
-                        if (value) {
-                          handleCopyFromProject(value);
-                        }
-                      }}
-                    >
-                      <option value="">選択してください</option>
+                      value={copySourceProjectInput}
+                      onChange={(e) => handleCopySourceProjectInputChange(e.target.value)}
+                      placeholder="現場名・取引先で入力 / 選択"
+                      aria-label="過去案件からコピー"
+                    />
+                    <datalist id="project-copy-source-list">
                       {projects.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.siteName}（{p.customerName}）
-                        </option>
+                        <option key={p.id} value={getCopySourceProjectLabel(p)} />
                       ))}
-                    </select>
+                    </datalist>
                     <p className="mt-1 text-[11px] text-theme-text-muted">
                       以前の工事や同じ現場の案件を選ぶと、取引先・住所・作業班などをコピーして新規案件を作成できます。
                     </p>
