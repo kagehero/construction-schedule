@@ -5,6 +5,7 @@ import { format } from "date-fns";
 import { z } from "zod";
 import type { ContractType, Project } from "@/domain/projects/types";
 import { Card } from "@/components/ui/card";
+import { AddressMapModal } from "../../components/AddressMapModal";
 import { getProjects, createProject, updateProject, deleteProject } from "@/lib/supabase/projects";
 import { getWorkLines, createWorkLine, updateWorkLine, deleteWorkLine, getMembers } from "@/lib/supabase/schedule";
 import { getProjectDefaultMemberIds, setProjectDefaultMembers } from "@/lib/supabase/projectDefaultMembers";
@@ -123,6 +124,10 @@ export default function ProjectsPage() {
   const [workGroupSearch, setWorkGroupSearch] = useState("");
   const [customerSearch, setCustomerSearch] = useState("");
   const [formDefaultMemberSearch, setFormDefaultMemberSearch] = useState("");
+  const [showAddressMapModal, setShowAddressMapModal] = useState(false);
+
+  // AddressMapModal の型解決が環境により不安定なため、使用時は any として扱う
+  const AddressMapModalAny: any = AddressMapModal;
 
   const showForm = showNewProjectForm || !!editingProject;
 
@@ -1415,11 +1420,23 @@ export default function ProjectsPage() {
                 )}
                 <div>
                   <label className="block mb-1">現場住所</label>
-                  <input
-                    className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
-                    value={form.siteAddress}
-                    onChange={(e) => handleChange("siteAddress", e.target.value)}
-                  />
+                  <div className="flex gap-2 items-start">
+                    <input
+                      className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                      value={form.siteAddress}
+                      onChange={(e) => handleChange("siteAddress", e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowAddressMapModal(true)}
+                      className="shrink-0 px-2 py-1.5 rounded-md border border-theme-border bg-theme-bg-elevated text-[11px] text-theme-text hover:bg-theme-bg-elevated-hover"
+                    >
+                      地図から選ぶ
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[11px] text-theme-text-muted">
+                    「地図から選ぶ」を押すと地図が開き、検索した場所の住所が現場住所に反映されます。
+                  </p>
                   {errors.siteAddress && (
                     <p className="mt-1 text-xs text-red-400">{errors.siteAddress}</p>
                   )}
@@ -1645,6 +1662,21 @@ export default function ProjectsPage() {
           </div>
         </div>
       )}
+
+      <AddressMapModalAny
+        open={showAddressMapModal}
+        initialQuery={
+          (form.siteAddress || "").trim() ||
+          `${form.customerName} ${form.siteName}`.trim() ||
+          undefined
+        }
+        onSelect={(address: string) => {
+          if (address) {
+            handleChange("siteAddress", address);
+          }
+        }}
+        onClose={() => setShowAddressMapModal(false)}
+      />
 
       {/* 作業班マスター 登録・編集モーダル */}
       {showWorkGroupModal && (
