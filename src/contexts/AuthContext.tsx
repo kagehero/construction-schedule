@@ -18,6 +18,8 @@ interface AuthContextType {
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   isAdmin: boolean;
+  /** 主管理者（admin@gmail.com）のみ true。ユーザー管理メニュー表示に使用 */
+  isPrimaryAdmin: boolean;
   isViewer: boolean;
 }
 
@@ -228,6 +230,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signUp,
     signOut,
     isAdmin: profile?.role === 'admin' || isPrimaryAdmin,
+    isPrimaryAdmin,
     isViewer: profile?.role === 'viewer' || profile?.role === 'admin' || isPrimaryAdmin,
   };
 

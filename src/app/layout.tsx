@@ -22,7 +22,7 @@ type SidebarProps = {
 };
 
 function Sidebar({ onNavigate, showCloseButton, onClose }: SidebarProps) {
-  const { signOut, profile, isAdmin, isViewer } = useAuth();
+  const { signOut, profile, isAdmin, isPrimaryAdmin, isViewer } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [theme, setThemeState] = useState<ThemeValue>(THEME_DARK);
@@ -50,13 +50,13 @@ function Sidebar({ onNavigate, showCloseButton, onClose }: SidebarProps) {
     }
   };
 
-  // 管理者用のナビゲーションメニュー
+  // 管理者用のナビゲーションメニュー（ユーザー管理は主管理者のみ）
   const adminMenuItems = [
     { href: '/dashboard', label: 'ダッシュボード' },
     { href: '/schedule', label: '工程・人員配置' },
     { href: '/projects', label: '案件管理' },
     { href: '/members', label: 'メンバー管理' },
-    { href: '/users', label: 'ユーザー管理' },
+    ...(isPrimaryAdmin ? [{ href: '/users', label: 'ユーザー管理' }] : []),
   ];
 
   // ビューア用のナビゲーションメニュー

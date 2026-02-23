@@ -7,10 +7,12 @@ import { useAuth } from '@/contexts/AuthContext';
 interface AuthGuardProps {
   children: React.ReactNode;
   requireAdmin?: boolean;
+  /** 主管理者（admin@gmail.com）のみ許可。requireAdmin より厳しい */
+  requirePrimaryAdmin?: boolean;
 }
 
-export function AuthGuard({ children, requireAdmin = false }: AuthGuardProps) {
-  const { user, profile, loading, isAdmin } = useAuth();
+export function AuthGuard({ children, requireAdmin = false, requirePrimaryAdmin = false }: AuthGuardProps) {
+  const { user, loading, isAdmin, isPrimaryAdmin } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -19,12 +21,16 @@ export function AuthGuard({ children, requireAdmin = false }: AuthGuardProps) {
         router.push('/login');
         return;
       }
+      if (requirePrimaryAdmin && !isPrimaryAdmin) {
+        router.push('/schedule');
+        return;
+      }
       if (requireAdmin && !isAdmin) {
-        router.push('/schedule'); // Redirect to schedule page if not admin
+        router.push('/schedule');
         return;
       }
     }
-  }, [user, loading, isAdmin, requireAdmin, router]);
+  }, [user, loading, isAdmin, isPrimaryAdmin, requireAdmin, requirePrimaryAdmin, router]);
 
   if (loading) {
     return (
@@ -35,11 +41,15 @@ export function AuthGuard({ children, requireAdmin = false }: AuthGuardProps) {
   }
 
   if (!user) {
-    return null; // Will redirect
+    return null;
+  }
+
+  if (requirePrimaryAdmin && !isPrimaryAdmin) {
+    return null;
   }
 
   if (requireAdmin && !isAdmin) {
-    return null; // Will redirect
+    return null;
   }
 
   return <>{children}</>;

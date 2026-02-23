@@ -114,7 +114,7 @@ export default function UsersPage() {
   });
 
   return (
-    <AuthGuard requireAdmin={true}>
+    <AuthGuard requirePrimaryAdmin>
       <div className="h-screen flex flex-col">
         <header className="px-4 md:px-6 py-3 border-b border-theme-border">
           <h1 className="text-lg font-semibold text-theme-text">ユーザー管理</h1>
