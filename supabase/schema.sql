@@ -159,6 +159,21 @@ CREATE POLICY "Users can view their own profile" ON user_profiles
 CREATE POLICY "Users can update their own profile" ON user_profiles
   FOR UPDATE USING (auth.uid() = id);
 
+-- 管理者は全ユーザーのプロファイルを参照・更新・削除可能（ユーザー管理画面でロール変更をDBに反映するため）
+-- ※ self-reference による再帰エラーを避けるため、JWT の email で主管理者を判定
+CREATE POLICY "Admins can view all user profiles" ON user_profiles
+  FOR SELECT USING (
+    (auth.jwt()->>'email') = 'admin@gmail.com'
+  );
+CREATE POLICY "Admins can update any user profile" ON user_profiles
+  FOR UPDATE USING (
+    (auth.jwt()->>'email') = 'admin@gmail.com'
+  );
+CREATE POLICY "Admins can delete any user profile" ON user_profiles
+  FOR DELETE USING (
+    (auth.jwt()->>'email') = 'admin@gmail.com'
+  );
+
 -- Projects policies
 CREATE POLICY "Anyone can view projects" ON projects
   FOR SELECT USING (true);

@@ -23,6 +23,9 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/** 主管理者メール。DBのroleがviewerでも管理者として扱う（メニュー・権限） */
+const PRIMARY_ADMIN_EMAIL = "admin@gmail.com";
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -216,6 +219,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
+  const isPrimaryAdmin = (user?.email?.toLowerCase().trim() === PRIMARY_ADMIN_EMAIL.toLowerCase());
   const value: AuthContextType = {
     user,
     profile,
@@ -223,8 +227,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signIn,
     signUp,
     signOut,
-    isAdmin: profile?.role === 'admin',
-    isViewer: profile?.role === 'viewer' || profile?.role === 'admin',
+    isAdmin: profile?.role === 'admin' || isPrimaryAdmin,
+    isViewer: profile?.role === 'viewer' || profile?.role === 'admin' || isPrimaryAdmin,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

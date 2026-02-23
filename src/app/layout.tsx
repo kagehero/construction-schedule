@@ -56,6 +56,7 @@ function Sidebar({ onNavigate, showCloseButton, onClose }: SidebarProps) {
     { href: '/schedule', label: '工程・人員配置' },
     { href: '/projects', label: '案件管理' },
     { href: '/members', label: 'メンバー管理' },
+    { href: '/users', label: 'ユーザー管理' },
   ];
 
   // ビューア用のナビゲーションメニュー

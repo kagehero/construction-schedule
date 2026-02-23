@@ -1418,23 +1418,25 @@ export default function ProjectsPage() {
                     )}
                   </div>
                 )}
-                <div>
-                  <label className="block mb-1">現場住所</label>
-                  <div className="flex gap-2 items-start">
+                <div className="rounded-md border border-theme-border p-3 bg-theme-bg-elevated/30">
+                  <label className="block mb-1 font-medium">現場住所</label>
+                  <div className="flex gap-2 items-start flex-wrap">
                     <input
-                      className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                      className="flex-1 min-w-[140px] rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
                       value={form.siteAddress}
                       onChange={(e) => handleChange("siteAddress", e.target.value)}
+                      placeholder="住所を入力"
                     />
                     <button
                       type="button"
                       onClick={() => setShowAddressMapModal(true)}
-                      className="shrink-0 px-2 py-1.5 rounded-md border border-theme-border bg-theme-bg-elevated text-[11px] text-theme-text hover:bg-theme-bg-elevated-hover"
+                      className="shrink-0 px-3 py-2 rounded-md border border-theme-border bg-theme-bg-elevated text-xs text-theme-text hover:bg-theme-bg-elevated-hover font-medium"
+                      aria-label="地図から住所を選ぶ"
                     >
-                      地図から選ぶ
+                      🗺 地図から選ぶ
                     </button>
                   </div>
-                  <p className="mt-1 text-[11px] text-theme-text-muted">
+                  <p className="mt-1.5 text-[11px] text-theme-text-muted">
                     「地図から選ぶ」を押すと地図が開き、検索した場所の住所が現場住所に反映されます。
                   </p>
                   {errors.siteAddress && (
