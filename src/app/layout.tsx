@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ReactNode, CSSProperties } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Image from "next/image";
@@ -20,6 +20,115 @@ type SidebarProps = {
   showCloseButton?: boolean;
   onClose?: () => void;
 };
+
+/** モバイル用ボトムナビ・メニュー共通の項目 */
+type BottomNavItem = {
+  href: string | "menu";
+  label: string;
+  icon: ReactNode;
+};
+
+function BottomNav({
+  pathname,
+  isAdmin,
+  onOpenMenu,
+}: {
+  pathname: string;
+  isAdmin: boolean;
+  onOpenMenu: () => void;
+}) {
+  const router = useRouter();
+
+  const navItems: BottomNavItem[] = [
+    { href: "/dashboard", label: "ダッシュボード", icon: <HomeIcon /> },
+    { href: "/schedule", label: "工程・人員配置", icon: <CalendarIcon /> },
+    ...(isAdmin ? [{ href: "/projects" as const, label: "案件管理", icon: <BriefcaseIcon /> }] : []),
+    ...(isAdmin ? [{ href: "/members" as const, label: "メンバー管理", icon: <UsersIcon /> }] : []),
+    { href: "menu", label: "メニュー", icon: <MenuIcon /> },
+  ];
+
+  return (
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-30 flex md:hidden items-center justify-around bg-theme-sidebar border-t border-theme-border text-theme-text pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+      aria-label="メインナビゲーション"
+    >
+      {navItems.map((item) => {
+        const isActive = item.href !== "menu" && pathname === item.href;
+        return (
+          <button
+            key={item.href}
+            type="button"
+            onClick={() => {
+              if (item.href === "menu") {
+                onOpenMenu();
+              } else {
+                router.push(item.href);
+              }
+            }}
+            className={`flex flex-col items-center justify-center gap-0.5 py-2 px-2 min-w-0 flex-1 ${
+              isActive ? "text-theme-accent" : "text-theme-text-muted"
+            }`}
+            aria-current={isActive ? "page" : undefined}
+            aria-label={item.label}
+          >
+            <span className="shrink-0 w-6 h-6 flex items-center justify-center">{item.icon}</span>
+            <span className="text-[10px] truncate max-w-full">{item.label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function HomeIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+    </svg>
+  );
+}
+function CalendarIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    </svg>
+  );
+}
+function BriefcaseIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+    </svg>
+  );
+}
+function UsersIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+    </svg>
+  );
+}
+function UserAdminIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M15 14a3 3 0 11-6 0 3 3 0 016 0zM4 20a6 6 0 1112 0v1H4v-1zM19.5 8.25l.75 1.5 1.5.75-1.5.75-.75 1.5-.75-1.5-1.5-.75 1.5-.75.75-1.5z"
+      />
+    </svg>
+  );
+}
+function MenuIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+      <line x1="3" y1="6" x2="21" y2="6" strokeWidth={2} strokeLinecap="round" />
+      <line x1="3" y1="12" x2="21" y2="12" strokeWidth={2} strokeLinecap="round" />
+      <line x1="3" y1="18" x2="21" y2="18" strokeWidth={2} strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function Sidebar({ onNavigate, showCloseButton, onClose }: SidebarProps) {
   const { signOut, profile, isAdmin, isPrimaryAdmin, isViewer } = useAuth();
@@ -52,23 +161,23 @@ function Sidebar({ onNavigate, showCloseButton, onClose }: SidebarProps) {
 
   // 管理者用のナビゲーションメニュー（ユーザー管理は主管理者のみ）
   const adminMenuItems = [
-    { href: '/dashboard', label: 'ダッシュボード' },
-    { href: '/schedule', label: '工程・人員配置' },
-    { href: '/projects', label: '案件管理' },
-    { href: '/members', label: 'メンバー管理' },
-    ...(isPrimaryAdmin ? [{ href: '/users', label: 'ユーザー管理' }] : []),
+    { href: '/dashboard', label: 'ダッシュボード', icon: <HomeIcon /> },
+    { href: '/schedule', label: '工程・人員配置', icon: <CalendarIcon /> },
+    { href: '/projects', label: '案件管理', icon: <BriefcaseIcon /> },
+    { href: '/members', label: 'メンバー管理', icon: <UsersIcon /> },
+    ...(isPrimaryAdmin ? [{ href: '/users', label: 'ユーザー管理', icon: <UserAdminIcon /> }] : []),
   ];
 
   // ビューア用のナビゲーションメニュー
   const viewerMenuItems = [
-    { href: '/dashboard', label: 'ダッシュボード' },
-    { href: '/schedule', label: '工程・人員配置' },
+    { href: '/dashboard', label: 'ダッシュボード', icon: <HomeIcon /> },
+    { href: '/schedule', label: '工程・人員配置', icon: <CalendarIcon /> },
   ];
 
   const menuItems = isAdmin ? adminMenuItems : viewerMenuItems;
 
   return (
-    <aside className="w-56 h-full min-h-0 bg-theme-sidebar text-theme-text flex flex-col">
+    <aside className="w-56 h-full min-h-0 bg-theme-sidebar text-theme-text flex flex-col" aria-label="メニュー">
       <div className="flex items-center justify-between shrink-0 px-4 py-3 text-lg font-semibold border-b border-theme-border">
         {/* ロゴ：クリックで工程・人員配置へ移動 */}
         <button
@@ -121,7 +230,10 @@ function Sidebar({ onNavigate, showCloseButton, onClose }: SidebarProps) {
                   : 'hover:bg-theme-bg-elevated text-theme-text-muted'
               }`}
             >
-              <span>{item.label}</span>
+              <span className="flex items-center gap-2">
+                <span className="w-4 h-4 flex items-center justify-center">{item.icon}</span>
+                <span className="truncate">{item.label}</span>
+              </span>
             </button>
           );
         })}
@@ -187,46 +299,22 @@ function Sidebar({ onNavigate, showCloseButton, onClose }: SidebarProps) {
 function LayoutContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { isAdmin, isPrimaryAdmin } = useAuth();
   const isLoginPage = pathname === '/login';
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isSidebarClosing, setIsSidebarClosing] = useState(false);
-  const [isSidebarAnimatingIn, setIsSidebarAnimatingIn] = useState(false);
-
-  const openSidebar = () => {
-    setIsSidebarOpen(true);
-    setIsSidebarClosing(false);
-    setIsSidebarAnimatingIn(false);
-  };
-
-  const closeSidebar = () => {
-    setIsSidebarClosing(true);
-  };
-
-  const closeSidebarImmediate = () => {
-    setIsSidebarOpen(false);
-    setIsSidebarClosing(false);
-    setIsSidebarAnimatingIn(false);
-  };
-
-  // 開く: マウント後にスライドイン開始
-  useEffect(() => {
-    if (!isSidebarOpen || isSidebarClosing) return;
-    const id = requestAnimationFrame(() => {
-      requestAnimationFrame(() => setIsSidebarAnimatingIn(true));
-    });
-    return () => cancelAnimationFrame(id);
-  }, [isSidebarOpen, isSidebarClosing]);
-
-  // 閉じる: アニメーション後に非表示
-  useEffect(() => {
-    if (!isSidebarClosing) return;
-    const t = setTimeout(closeSidebarImmediate, 280);
-    return () => clearTimeout(t);
-  }, [isSidebarClosing]);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   if (isLoginPage) {
     return <>{children}</>;
   }
+
+  // モバイル用メニューシートに表示する項目（アイコンのみ表示）
+  const sheetItems: BottomNavItem[] = [
+    { href: "/dashboard", label: "ダッシュボード", icon: <HomeIcon /> },
+    { href: "/schedule", label: "工程・人員配置", icon: <CalendarIcon /> },
+    ...(isAdmin ? [{ href: "/projects" as const, label: "案件管理", icon: <BriefcaseIcon /> }] : []),
+    ...(isAdmin ? [{ href: "/members" as const, label: "メンバー管理", icon: <UsersIcon /> }] : []),
+    ...(isPrimaryAdmin ? [{ href: "/users" as const, label: "ユーザー管理", icon: <UserAdminIcon /> }] : []),
+  ];
 
   return (
     <div className="flex min-h-screen bg-theme-main">
@@ -235,57 +323,10 @@ function LayoutContent({ children }: { children: ReactNode }) {
         <Sidebar />
       </div>
 
-      {/* モバイル用スライドインサイドバー（画面高・アニメーション・閉じるボタン） */}
-      {isSidebarOpen && (
-        <div className="fixed inset-0 z-40 flex md:hidden">
-          <button
-            type="button"
-            className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
-              isSidebarClosing ? "opacity-0" : isSidebarAnimatingIn ? "opacity-100" : "opacity-0"
-            }`}
-            aria-label="メニューを閉じる"
-            onClick={closeSidebar}
-          />
-          <div
-            className={`relative flex flex-col h-screen w-56 shadow-xl transition-transform duration-200 ease-out ${
-              isSidebarClosing ? "-translate-x-full" : isSidebarAnimatingIn ? "translate-x-0" : "-translate-x-full"
-            }`}
-          >
-            <Sidebar
-              onNavigate={closeSidebar}
-              showCloseButton
-              onClose={closeSidebar}
-            />
-          </div>
-        </div>
-      )}
-
       {/* メインコンテンツ（モバイルヘッダー付き） */}
       <div className="flex-1 flex flex-col">
         {/* モバイル用ヘッダー */}
         <header className="flex items-center justify-between px-4 py-3 border-b border-theme-border md:hidden">
-          <button
-            type="button"
-            className="p-2 rounded-md bg-theme-bg-elevated text-theme-text hover:bg-theme-bg-elevated-hover"
-            aria-label="メニューを開く"
-            onClick={openSidebar}
-          >
-            <svg
-              className="h-5 w-5"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <line x1="3" y1="6" x2="21" y2="6" />
-              <line x1="3" y1="12" x2="21" y2="12" />
-              <line x1="3" y1="18" x2="21" y2="18" />
-            </svg>
-          </button>
-          {/* ロゴ：タップで工程・人員配置画面へ */}
           <button
             type="button"
             onClick={() => router.push('/schedule')}
@@ -306,10 +347,48 @@ function LayoutContent({ children }: { children: ReactNode }) {
           <span className="w-9" aria-hidden="true" />
         </header>
 
-        <main className="flex-1 bg-theme-main md:border-l md:border-theme-border">
+        <main className="flex-1 bg-theme-main md:border-l md:border-theme-border pb-16 md:pb-0">
           {children}
         </main>
       </div>
+
+      {/* モバイル用メニュー（下段ナビの「メニュー」タップ時・右下からアイコンが上方向に順番に現れる） */}
+      <div className="fixed bottom-[-180px] right-3 z-40 md:hidden">
+        {isMenuOpen &&
+          sheetItems.map((item, index) => {
+            const isActive = pathname === item.href;
+            return (
+              <button
+                key={item.href}
+                type="button"
+                onClick={() => {
+                  router.push(item.href);
+                  setIsMenuOpen(false);
+                }}
+                className={`menu-pop w-10 h-10 flex items-center justify-center rounded-full shadow-lg border border-theme-border ${
+                  isActive ? "bg-theme-bg-elevated text-theme-accent" : "bg-theme-sidebar text-theme-text-muted"
+                }`}
+                style={{
+                  animationDelay: `${index * 140}ms`,
+                  // 各アイコンごとに最終位置までのオフセットを変える（クリックしたメニューアイコン位置から上に並ぶ）
+                  ["--menu-offset" as keyof CSSProperties]: `-${(index + 1) * 100}px`,
+                }}
+                aria-label={item.label}
+              >
+                {item.icon}
+              </button>
+            );
+          })}
+      </div>
+
+      {/* モバイル用固定ボトムナビ（添付画像のように画面下に固定） */}
+      {!isLoginPage && (
+        <BottomNav
+          pathname={pathname}
+          isAdmin={isAdmin}
+          onOpenMenu={() => setIsMenuOpen((prev) => !prev)}
+        />
+      )}
     </div>
   );
 }
