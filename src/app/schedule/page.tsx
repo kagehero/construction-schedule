@@ -125,7 +125,7 @@ interface SelectionState {
   date: string;
 }
 
-export default function SchedulePage({ embedded = false }: { embedded?: boolean } = {}) {
+function SchedulePageInner({ embedded }: { embedded: boolean }) {
   const [baseDate] = useState(new Date());
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [selection, setSelection] = useState<SelectionState | null>(null);
@@ -2037,4 +2037,10 @@ export default function SchedulePage({ embedded = false }: { embedded?: boolean 
   );
 }
 
+export default function SchedulePage() {
+  return <SchedulePageInner embedded={false} />;
+}
 
+export function ScheduleEmbedded() {
+  return <SchedulePageInner embedded={true} />;
+}
