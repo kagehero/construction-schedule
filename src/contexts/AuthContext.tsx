@@ -217,6 +217,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
+    // ログアウト時にフロント側のセッション状態も初期化
+    if (typeof window !== 'undefined') {
+      try {
+        // 工程表モーダルの表示フラグなど、このアプリで使っているセッション情報をクリア
+        window.sessionStorage.removeItem('dashboard-schedule-modal-shown');
+      } catch {
+        // sessionStorage が使えない環境でもエラーで落ちないようにする
+      }
+    }
     setProfile(null);
     setUser(null);
   };

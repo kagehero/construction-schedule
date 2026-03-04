@@ -6,22 +6,18 @@ import { useAuth } from "@/contexts/AuthContext";
 
 export default function IndexPage() {
   const router = useRouter();
-  const { user, isAdmin, loading } = useAuth();
+  const { user, loading } = useAuth();
 
   useEffect(() => {
     if (!loading) {
       if (user) {
-        // 管理者はスケジュールページ、ビューアはダッシュボードにリダイレクト
-        if (isAdmin) {
-          router.push("/schedule");
-        } else {
-          router.push("/dashboard");
-        }
+        // ログイン済みユーザーはダッシュボードへ
+        router.push("/dashboard");
       } else {
         router.push("/login");
       }
     }
-  }, [user, isAdmin, loading, router]);
+  }, [user, loading, router]);
 
   return (
     <div className="h-screen flex items-center justify-center">

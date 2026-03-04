@@ -104,14 +104,18 @@ function useIsMobile(): boolean {
 
 // mockLinesは削除し、データベースから取得する
 
-const DAYS_VISIBLE_IN_VIEWPORT = 7; // 画面に表示する日数
-const ROWS_VISIBLE_IN_VIEWPORT = 4; // 1画面に表示する作業班の行数
+const DAYS_VISIBLE_IN_VIEWPORT = 7; // 画面に表示する日数（通常）
+const ROWS_VISIBLE_IN_VIEWPORT = 4; // 1画面に表示する作業班の行数（通常）
+const EMBEDDED_ROWS_VISIBLE = 3; // ダッシュボードのモーダル内で表示する行数
 const ROW_HEIGHT_PX = 110; // 1行の高さ（px）
 const TABLE_HEADER_HEIGHT_PX = 48;
 const TABLE_FOOTER_HEIGHT_PX = 44;
 /** 工程表スクロール領域の高さ（ヘッダー + 4行 + フッター） */
 const SCHEDULE_SCROLL_HEIGHT_PX =
   TABLE_HEADER_HEIGHT_PX + ROWS_VISIBLE_IN_VIEWPORT * ROW_HEIGHT_PX + TABLE_FOOTER_HEIGHT_PX;
+/** 工程表スクロール領域の高さ（埋め込み表示用: ヘッダー + 3行 + フッター） */
+const EMBEDDED_SCHEDULE_SCROLL_HEIGHT_PX =
+  TABLE_HEADER_HEIGHT_PX + EMBEDDED_ROWS_VISIBLE * ROW_HEIGHT_PX + TABLE_FOOTER_HEIGHT_PX;
 
 // 仮のユーザー権限（本番ではログイン情報から取得する想定）
 const CURRENT_USER_ROLE: "admin" | "viewer" = "admin";
@@ -121,7 +125,7 @@ interface SelectionState {
   date: string;
 }
 
-export default function SchedulePage() {
+export default function SchedulePage({ embedded = false }: { embedded?: boolean } = {}) {
   const [baseDate] = useState(new Date());
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [selection, setSelection] = useState<SelectionState | null>(null);
@@ -140,9 +144,7 @@ export default function SchedulePage() {
   const [rangeStartDate, setRangeStartDate] = useState<string>(""); // 期間まとめて配置用の開始日
   const [rangeEndDate, setRangeEndDate] = useState<string>(""); // 期間まとめて配置用の終了日
   const [holidayWeekdays, setHolidayWeekdays] = useState<number[]>([]);
-  const [selectionHolidayWeekdays, setSelectionHolidayWeekdays] = useState<
-    number[]
-  >([]);
+  const [selectionHolidayWeekdays, setSelectionHolidayWeekdays] = useState<number[]>([]);
   const [dayStatuses, setDayStatuses] = useState<DaySiteStatus[]>([]);
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false);
   const [modalWorkLineId, setModalWorkLineId] = useState<string>("");
@@ -527,16 +529,29 @@ export default function SchedulePage() {
   };
 
 
-  // 常に7日分（1週間）を表示
+  // 表示する日付の配列
+  // - 通常: 7日分（1週間）
+  // - embedded（ダッシュボードのモーダル）: 当日のみ
   const days = useMemo(() => {
+    if (embedded) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return [
+        {
+          date: today,
+          iso: format(today, "yyyy-MM-dd"),
+        },
+      ];
+    }
+
     return Array.from({ length: DAYS_VISIBLE_IN_VIEWPORT }, (_, i) => {
       const d = addDays(currentWeekStart, i);
       return {
         date: d,
-        iso: format(d, "yyyy-MM-dd")
+        iso: format(d, "yyyy-MM-dd"),
       };
     });
-  }, [currentWeekStart]);
+  }, [currentWeekStart, embedded]);
 
   /** 日付が今日より前（過去）なら true（過去日は自動ロック対象） */
   const isPastDate = (iso: string) => iso < format(new Date(), "yyyy-MM-dd");
@@ -875,15 +890,17 @@ export default function SchedulePage() {
 
   return (
     <AuthGuard>
-    <div className="h-screen flex flex-col">
-      <header className="px-6 py-3 border-b border-theme-border flex items-center justify-between">
-        <div className="flex items-baseline gap-4">
-          <h1 className="text-lg font-semibold text-theme-text">工程・人員配置</h1>
-        </div>
-      </header>
+    <div className={embedded ? "flex flex-col" : "h-screen flex flex-col"}>
+      {!embedded && (
+        <header className="px-6 py-3 border-b border-theme-border flex items-center justify-between">
+          <div className="flex items-baseline gap-4">
+            <h1 className="text-lg font-semibold text-theme-text">工程・人員配置</h1>
+          </div>
+        </header>
+      )}
       <div className="flex-1 overflow-auto grid grid-rows-[auto_minmax(0,1fr)] gap-2 p-3">
-        {/* ビューア用のフィルタリングカード */}
-        {!isAdmin && (
+        {/* ビューア用のフィルタリングカード（埋め込み表示時は非表示） */}
+        {!embedded && !isAdmin && (
           <Card title="工程表フィルター" className="text-xs">
             <div className="flex flex-wrap items-end gap-4">
               <div>
@@ -951,8 +968,8 @@ export default function SchedulePage() {
             </div>
           </Card>
         )}
-        {/* 管理者用の期間まとめて配置カード（スマホではクリックで開閉） */}
-        {isAdmin && (
+        {/* 管理者用の期間まとめて配置カード（スマホではクリックで開閉） - 埋め込み表示時は非表示 */}
+        {isAdmin && !embedded && (
         isMobile ? (
           <section className="rounded-xl bg-theme-card border border-theme-border text-theme-text shadow-sm text-xs overflow-hidden">
             <button
@@ -1133,7 +1150,7 @@ export default function SchedulePage() {
         )}
         <Card title="工程表" className="text-xs overflow-hidden">
           <div className="flex flex-wrap items-center gap-2 mb-2">
-            {isAdmin && (
+            {isAdmin && !embedded && (
               <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
                 <input
                   type="checkbox"
@@ -1146,43 +1163,48 @@ export default function SchedulePage() {
                 </span>
               </label>
             )}
-            <button
-              type="button"
-              onClick={goToPrevWeek}
-              disabled={isAnimating}
-              className="px-3 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-            >
-              ← 前の週
-            </button>
-            <button
-              type="button"
-              onClick={goToToday}
-              disabled={isAnimating}
-              className="px-3 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-            >
-              今週に戻る
-            </button>
-            <button
-              type="button"
-              onClick={goToNextWeek}
-              disabled={isAnimating}
-              className="px-3 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-            >
-              次の週 →
-            </button>
-            <span className="text-xs text-theme-text-muted ml-auto">
-              {days.length > 0 && (
-                <>
-                  {format(days[0].date, "yyyy年MM月dd日", { locale: ja })} 〜 {format(days[days.length - 1].date, "yyyy年MM月dd日", { locale: ja })}
-                </>
-              )}
-            </span>
+            {!embedded && (
+              <>
+                <button
+                  type="button"
+                  onClick={goToPrevWeek}
+                  disabled={isAnimating}
+                  className="px-3 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+                >
+                  ← 前の週
+                </button>
+                <button
+                  type="button"
+                  onClick={goToToday}
+                  disabled={isAnimating}
+                  className="px-3 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+                >
+                  今週に戻る
+                </button>
+                <button
+                  type="button"
+                  onClick={goToNextWeek}
+                  disabled={isAnimating}
+                  className="px-3 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+                >
+                  次の週 →
+                </button>
+                <span className="text-xs text-theme-text-muted ml-auto">
+                  {days.length > 0 && (
+                    <>
+                      {format(days[0].date, "yyyy年MM月dd日", { locale: ja })} 〜{" "}
+                      {format(days[days.length - 1].date, "yyyy年MM月dd日", { locale: ja })}
+                    </>
+                  )}
+                </span>
+              </>
+            )}
           </div>
           <div 
             className="overflow-y-auto overflow-x-auto"
             style={{ 
               width: '100%',
-              height: SCHEDULE_SCROLL_HEIGHT_PX
+              height: embedded ? EMBEDDED_SCHEDULE_SCROLL_HEIGHT_PX : SCHEDULE_SCROLL_HEIGHT_PX
             }}
           >
             <table className="border-collapse text-[11px] w-full" style={{ tableLayout: 'fixed', minHeight: '280px' }} cellPadding="0" cellSpacing="0">
@@ -1761,7 +1783,7 @@ export default function SchedulePage() {
         </div>
       )}
 
-      {showBulkAssignModal && (
+      {!embedded && showBulkAssignModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <button
             type="button"

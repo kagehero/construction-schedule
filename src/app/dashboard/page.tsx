@@ -6,12 +6,16 @@ import { Card } from "@/components/ui/card";
 import { getProjects } from "@/lib/supabase/projects";
 import { useState, useEffect } from "react";
 import type { Project } from "@/domain/projects/types";
+import SchedulePage from "@/app/schedule/page";
 
 export default function DashboardPage() {
   const { profile } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [projectSearch, setProjectSearch] = useState("");
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduleModalClosing, setScheduleModalClosing] = useState(false);
+  const [scheduleModalAnimatingIn, setScheduleModalAnimatingIn] = useState(false);
 
   const filteredProjects = projectSearch.trim()
     ? projects.filter(
@@ -26,6 +30,39 @@ export default function DashboardPage() {
   useEffect(() => {
     loadProjects();
   }, []);
+
+  // ログイン直後（このタブで初回のダッシュボード表示時）に工程表モーダルを自動表示
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const KEY = "dashboard-schedule-modal-shown";
+    const alreadyShown = window.sessionStorage.getItem(KEY);
+    if (!alreadyShown) {
+      setShowScheduleModal(true);
+      setScheduleModalClosing(false);
+      window.sessionStorage.setItem(KEY, "1");
+    }
+  }, []);
+
+  // モーダル開くときのアニメーション開始
+  useEffect(() => {
+    if (!showScheduleModal || scheduleModalClosing) return;
+    setScheduleModalAnimatingIn(false);
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setScheduleModalAnimatingIn(true));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [showScheduleModal, scheduleModalClosing]);
+
+  // モーダル閉じるときのアニメーション完了後にアンマウント
+  useEffect(() => {
+    if (!scheduleModalClosing) return;
+    const t = setTimeout(() => {
+      setShowScheduleModal(false);
+      setScheduleModalClosing(false);
+      setScheduleModalAnimatingIn(false);
+    }, 200);
+    return () => clearTimeout(t);
+  }, [scheduleModalClosing]);
 
   const loadProjects = async () => {
     try {
@@ -42,11 +79,26 @@ export default function DashboardPage() {
   return (
     <AuthGuard>
       <div className="h-screen flex flex-col">
-        <header className="px-6 py-3 border-b border-theme-border">
-          <h1 className="text-lg font-semibold text-theme-text">ダッシュボード</h1>
-          <p className="text-xs text-theme-text-muted mt-1">
-            閲覧者用ダッシュボード
-          </p>
+        <header className="px-6 py-3 border-b border-theme-border flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-lg font-semibold text-theme-text">ダッシュボード</h1>
+            <p className="text-xs text-theme-text-muted mt-1">
+              閲覧者用ダッシュボード
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setShowScheduleModal(true);
+              setScheduleModalClosing(false);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-md bg-theme-bg-elevated hover:bg-theme-bg-elevated-hover border border-theme-border px-3 py-1.5 text-xs md:text-sm text-theme-text shadow-sm"
+          >
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-theme-accent text-[10px] font-semibold text-white">
+              今
+            </span>
+            <span>本日の工程を見る</span>
+          </button>
         </header>
 
         <div className="flex-1 overflow-auto p-6" >
@@ -132,6 +184,49 @@ export default function DashboardPage() {
             </Card>
           </div>
         </div>
+
+        {/* 工程・人員配置の工程表のみを表示するモーダル（期間まとめて配置モーダルと同じアニメーション） */}
+        {showScheduleModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <button
+              type="button"
+              className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
+                scheduleModalClosing || !scheduleModalAnimatingIn ? "opacity-0" : "opacity-100"
+              }`}
+              aria-label="閉じる"
+              onClick={() => setScheduleModalClosing(true)}
+            />
+            <div
+              className={`relative w-full max-w-[720px] bg-theme-main border border-theme-border rounded-lg shadow-lg overflow-hidden md:mx-4 transition-all duration-200 ease-out ${
+                scheduleModalClosing || !scheduleModalAnimatingIn
+                  ? "opacity-0 scale-95 translate-y-2"
+                  : "opacity-100 scale-100 translate-y-0"
+              }`}
+            >
+              <div className="absolute top-2 right-2 z-10 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setScheduleModalClosing(true)}
+                  className="inline-flex items-center justify-center rounded-full bg-black/50 hover:bg-black/70 text-theme-text w-7 h-7"
+                  aria-label="閉じる"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <div className="w-full bg-theme-main">
+                <div className="px-4 pt-3 pb-2 border-b border-theme-border">
+                  <p className="text-xs md:text-sm font-semibold text-theme-text">本日の工程表</p>
+                  <p className="text-[11px] text-theme-text-muted mt-0.5">
+                    工程・人員配置の工程表のうち、本日分のみを表示しています。
+                  </p>
+                </div>
+                <SchedulePage embedded />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </AuthGuard>
   );
