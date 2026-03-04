@@ -25,6 +25,14 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 
 Replace `your_supabase_project_url` and `your_supabase_anon_key` with your actual values.
 
+**オプション（ユーザー管理で全ユーザー表示）**: 管理者の「ユーザー管理」で、Supabase Auth に登録されている**全ユーザー**を一覧表示したい場合は、Project Settings → API の **service_role key** を取得し、`.env.local` に以下を追加してください（クライアントに公開しないこと）:
+
+```env
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+```
+
+未設定の場合は `user_profiles` テーブルに存在するユーザーのみ表示されます。
+
 ## 4. Run Database Schema
 
 1. Go to your Supabase project dashboard
@@ -176,6 +184,15 @@ The application should now connect to Supabase instead of using mock data.
 ### Access Control
 - **案件立ち上げページ**: 管理者のみアクセス可能
 - **工程・人員配置ページ**: 全ユーザーがアクセス可能（権限に応じて編集可能/閲覧のみ）
+
+## 9. ユーザー管理でロール変更がDBに反映されない場合
+
+ユーザー管理画面で「管理者」に変更しても、データベースの `user_profiles.role` が `viewer` のままになる場合は、RLS のため管理者が他ユーザーの行を更新できていません。以下を実行してください。
+
+1. Supabase ダッシュボード → **SQL Editor** を開く
+2. `supabase/migrations/user_profiles_admin_policies.sql` の内容を貼り付けて実行する
+
+これで、ロールが `admin` のユーザーは、全 `user_profiles` 行の参照・更新・削除ができるようになり、ユーザー管理でのロール変更がDBに正しく反映されます。
 
 ## Security Notes
 

@@ -19,7 +19,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (user) {
-      router.push('/schedule');
+      router.push('/dashboard');
     }
   }, [user, router]);
 
@@ -31,7 +31,7 @@ export default function LoginPage() {
 
     try {
       await signIn(email, password);
-      router.push('/schedule');
+      router.push('/dashboard');
     } catch (err: any) {
       let errorMessage = 'ログインに失敗しました';
       

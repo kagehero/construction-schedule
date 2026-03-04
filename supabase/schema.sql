@@ -14,10 +14,15 @@ CREATE TABLE IF NOT EXISTS user_profiles (
 CREATE TABLE IF NOT EXISTS projects (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   title TEXT NOT NULL,
+  customer_id UUID REFERENCES customers(id) ON DELETE SET NULL,
   customer_name TEXT NOT NULL,
   site_name TEXT NOT NULL,
   contract_type TEXT NOT NULL CHECK (contract_type IN ('請負', '常用', '追加工事')),
   contract_amount NUMERIC,
+  memo TEXT,
+  site_status TEXT,
+  -- カンマ区切りで 0〜6（0=日曜〜6=土曜）を保存する想定
+  default_holiday_weekdays TEXT,
   site_address TEXT NOT NULL,
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
@@ -29,6 +34,57 @@ CREATE TABLE IF NOT EXISTS projects (
 CREATE TABLE IF NOT EXISTS members (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name TEXT NOT NULL,
+  color TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Work groups table (作業班マスター)
+CREATE TABLE IF NOT EXISTS work_groups (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  color TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Customers table (取引先会社マスター)
+CREATE TABLE IF NOT EXISTS customers (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  address TEXT,
+  phone TEXT,
+  contact_person TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Customer members (取引先のメンバー・ビジネスパートナー担当者)
+CREATE TABLE IF NOT EXISTS customer_members (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  color TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Project default members (案件の既定メンバー・工程表で初期選択される)
+CREATE TABLE IF NOT EXISTS project_default_members (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  member_id UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(project_id, member_id)
+);
+
+-- 案件の工程（組立・解体などを日ごとに設定。1日だけの工程も可能）
+CREATE TABLE IF NOT EXISTS project_phases (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  site_status TEXT NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -75,12 +131,25 @@ CREATE INDEX IF NOT EXISTS idx_work_lines_project_id ON work_lines(project_id);
 CREATE INDEX IF NOT EXISTS idx_day_site_status_work_line_id ON day_site_status(work_line_id);
 CREATE INDEX IF NOT EXISTS idx_day_site_status_date ON day_site_status(date);
 
+-- Create index for customers
+CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);
+CREATE INDEX IF NOT EXISTS idx_customer_members_customer_id ON customer_members(customer_id);
+CREATE INDEX IF NOT EXISTS idx_projects_customer_id ON projects(customer_id);
+CREATE INDEX IF NOT EXISTS idx_project_default_members_project_id ON project_default_members(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_phases_project_id ON project_phases(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_phases_dates ON project_phases(project_id, start_date, end_date);
+CREATE INDEX IF NOT EXISTS idx_work_groups_name ON work_groups(name);
+
 -- Enable Row Level Security (RLS)
 ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE work_groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customer_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE work_lines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE project_default_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE day_site_status ENABLE ROW LEVEL SECURITY;
 
 -- User profiles policies
@@ -89,6 +158,21 @@ CREATE POLICY "Users can view their own profile" ON user_profiles
 
 CREATE POLICY "Users can update their own profile" ON user_profiles
   FOR UPDATE USING (auth.uid() = id);
+
+-- 管理者は全ユーザーのプロファイルを参照・更新・削除可能（ユーザー管理画面でロール変更をDBに反映するため）
+-- ※ self-reference による再帰エラーを避けるため、JWT の email で主管理者を判定
+CREATE POLICY "Admins can view all user profiles" ON user_profiles
+  FOR SELECT USING (
+    (auth.jwt()->>'email') = 'admin@gmail.com'
+  );
+CREATE POLICY "Admins can update any user profile" ON user_profiles
+  FOR UPDATE USING (
+    (auth.jwt()->>'email') = 'admin@gmail.com'
+  );
+CREATE POLICY "Admins can delete any user profile" ON user_profiles
+  FOR DELETE USING (
+    (auth.jwt()->>'email') = 'admin@gmail.com'
+  );
 
 -- Projects policies
 CREATE POLICY "Anyone can view projects" ON projects
@@ -123,6 +207,65 @@ CREATE POLICY "Anyone can view members" ON members
   FOR SELECT USING (true);
 
 CREATE POLICY "Only admins can manage members" ON members
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- Customers policies
+CREATE POLICY "Anyone can view customers" ON customers
+  FOR SELECT USING (true);
+
+CREATE POLICY "Only admins can manage customers" ON customers
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- Customer members policies
+CREATE POLICY "Anyone can view customer members" ON customer_members
+  FOR SELECT USING (true);
+
+CREATE POLICY "Only admins can manage customer members" ON customer_members
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- Work groups policies
+CREATE POLICY "Anyone can view work groups" ON work_groups
+  FOR SELECT USING (true);
+
+CREATE POLICY "Only admins can manage work groups" ON work_groups
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- Work lines policies
+-- Project default members policies
+CREATE POLICY "Anyone can view project default members" ON project_default_members
+  FOR SELECT USING (true);
+CREATE POLICY "Only admins can manage project default members" ON project_default_members
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- Project phases policies
+CREATE POLICY "Anyone can view project phases" ON project_phases
+  FOR SELECT USING (true);
+CREATE POLICY "Only admins can manage project phases" ON project_phases
   FOR ALL USING (
     EXISTS (
       SELECT 1 FROM user_profiles

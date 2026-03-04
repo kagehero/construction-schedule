@@ -34,13 +34,18 @@ export function createAssignmentsForRange(
 
     const isHoliday = holidayWeekdays.includes(weekday);
 
+    // 休日は工程表に現場を入れたくないため、割り当て自体を作成しない
+    if (isHoliday) {
+      continue;
+    }
+
     for (const memberId of memberIds) {
       result.push({
         id: `${workLineId}_${memberId}_${iso}`,
         workLineId,
         date: iso,
         memberId,
-        isHoliday,
+        isHoliday: false,
         isConfirmed: false
       });
     }

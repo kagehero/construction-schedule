@@ -5,12 +5,22 @@ import { format } from "date-fns";
 import { z } from "zod";
 import type { ContractType, Project } from "@/domain/projects/types";
 import { Card } from "@/components/ui/card";
+import { AddressMapModal } from "../../components/AddressMapModal";
 import { getProjects, createProject, updateProject, deleteProject } from "@/lib/supabase/projects";
-import { getWorkLines, createWorkLine, updateWorkLine, deleteWorkLine } from "@/lib/supabase/schedule";
+import { getWorkLines, createWorkLine, updateWorkLine, deleteWorkLine, getMembers } from "@/lib/supabase/schedule";
+import { getProjectDefaultMemberIds, setProjectDefaultMembers } from "@/lib/supabase/projectDefaultMembers";
+import { getProjectPhases, setProjectPhases } from "@/lib/supabase/projectPhases";
+import { getWorkGroups, createWorkGroup, updateWorkGroup, deleteWorkGroup } from "@/lib/supabase/workGroups";
+import { getCustomers, createCustomer, updateCustomer, deleteCustomer } from "@/lib/supabase/customers";
+import { getCustomerMembers, createCustomerMember, updateCustomerMember, deleteCustomerMember } from "@/lib/supabase/customerMembers";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthGuard } from "@/components/AuthGuard";
 import toast from "react-hot-toast";
-import type { WorkLine } from "@/domain/schedule/types";
+import type { WorkLine, Member } from "@/domain/schedule/types";
+import type { Customer } from "@/lib/supabase/customers";
+import type { WorkGroup } from "@/lib/supabase/workGroups";
+
+type TabId = "projects" | "work_lines" | "customers";
 
 const projectSchema = z.object({
   title: z.string().optional(), // Optional, will use siteName if empty
@@ -26,13 +36,12 @@ const projectSchema = z.object({
     ),
   siteAddress: z.string().min(1, "現場住所は必須です"),
   startDate: z.string().min(1, "開始日は必須です"),
-  endDate: z.string().min(1, "終了日は必須です")
+  endDate: z.string().min(1, "終了日は必須です"),
+  memo: z.string().max(1000, "メモは1000文字以内で入力してください").optional(),
+  siteStatus: z.string().max(50, "現場ステータスは50文字以内で入力してください").optional()
 });
 
 type FormState = z.infer<typeof projectSchema>;
-
-/** 作業班の1行（新規は id なし、編集時は既存 work_line の id あり） */
-type WorkGroupRow = { id?: string; name: string; color: string };
 
 const WORK_GROUP_DEFAULT_COLORS = ["#3b82f6", "#f97316", "#22c55e", "#eab308", "#a855f7", "#ef4444", "#06b6d4"];
 
@@ -45,7 +54,9 @@ function getProjectStatus(project: Project): "未施工" | "施工中" | "完工
 }
 
 export default function ProjectsPage() {
+  const [activeTab, setActiveTab] = useState<TabId>("projects");
   const [projects, setProjects] = useState<Project[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [form, setForm] = useState<FormState>({
     title: "",
     customerName: "",
@@ -54,7 +65,9 @@ export default function ProjectsPage() {
     contractAmount: null,
     siteAddress: "",
     startDate: "",
-    endDate: ""
+    endDate: "",
+    memo: "",
+    siteStatus: "組立"
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -62,15 +75,97 @@ export default function ProjectsPage() {
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [workGroups, setWorkGroups] = useState<WorkGroupRow[]>([]);
+  const [selectedWorkGroupIds, setSelectedWorkGroupIds] = useState<string[]>([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
   const [showNewProjectForm, setShowNewProjectForm] = useState(false);
   const [formModalClosing, setFormModalClosing] = useState(false);
   const [formModalAnimatingIn, setFormModalAnimatingIn] = useState(false);
   const [deleteModalClosing, setDeleteModalClosing] = useState(false);
   const [deleteModalAnimatingIn, setDeleteModalAnimatingIn] = useState(false);
+  // 作業班管理（work_groups マスター）
+  const [workGroups, setWorkGroupsState] = useState<WorkGroup[]>([]);
+  const [editingWorkGroup, setEditingWorkGroup] = useState<WorkGroup | null>(null);
+  const [newWorkGroupName, setNewWorkGroupName] = useState("");
+  const [newWorkGroupColor, setNewWorkGroupColor] = useState(WORK_GROUP_DEFAULT_COLORS[0]);
+  const [showWorkGroupModal, setShowWorkGroupModal] = useState(false);
+  const [workGroupModalClosing, setWorkGroupModalClosing] = useState(false);
+  const [workGroupModalAnimatingIn, setWorkGroupModalAnimatingIn] = useState(false);
+  const [deletingWorkGroupId, setDeletingWorkGroupId] = useState<string | null>(null);
+  const [workGroupDeleteModalClosing, setWorkGroupDeleteModalClosing] = useState(false);
+  const [workGroupDeleteAnimatingIn, setWorkGroupDeleteAnimatingIn] = useState(false);
+  const [isWorkGroupSubmitting, setIsWorkGroupSubmitting] = useState(false);
+  const [isWorkGroupDeleting, setIsWorkGroupDeleting] = useState(false);
+  const [workGroupsLoading, setWorkGroupsLoading] = useState(false);
+  // 取引先会社
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [newCustomerName, setNewCustomerName] = useState("");
+  const [newCustomerAddress, setNewCustomerAddress] = useState("");
+  const [newCustomerPhone, setNewCustomerPhone] = useState("");
+  const [newCustomerContactPerson, setNewCustomerContactPerson] = useState("");
+  const [customerMemberRows, setCustomerMemberRows] = useState<{ id?: string; name: string; color: string }[]>([]);
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [customerModalClosing, setCustomerModalClosing] = useState(false);
+  const [customerModalAnimatingIn, setCustomerModalAnimatingIn] = useState(false);
+  const [deletingCustomerId, setDeletingCustomerId] = useState<string | null>(null);
+  const [customerDeleteModalClosing, setCustomerDeleteModalClosing] = useState(false);
+  const [customerDeleteAnimatingIn, setCustomerDeleteAnimatingIn] = useState(false);
+  const [isCustomerSubmitting, setIsCustomerSubmitting] = useState(false);
+  const [isCustomerDeleting, setIsCustomerDeleting] = useState(false);
+  const [customersLoading, setCustomersLoading] = useState(false);
   const { isAdmin, signOut, profile } = useAuth();
+  const [copySourceProjectId, setCopySourceProjectId] = useState<string>("");
+  const [copySourceProjectInput, setCopySourceProjectInput] = useState("");
+  const [projectHolidayWeekdays, setProjectHolidayWeekdays] = useState<number[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [selectedDefaultMemberIds, setSelectedDefaultMemberIds] = useState<string[]>([]);
+  const [projectPhases, setProjectPhasesState] = useState<{ startDate: string; endDate: string; siteStatus: string }[]>([]);
+  // 一覧検索（案件・作業班・取引先・フォーム内メンバー）
+  const [projectSearch, setProjectSearch] = useState("");
+  const [workGroupSearch, setWorkGroupSearch] = useState("");
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [formDefaultMemberSearch, setFormDefaultMemberSearch] = useState("");
+  const [showAddressMapModal, setShowAddressMapModal] = useState(false);
+
+  // AddressMapModal の型解決が環境により不安定なため、使用時は any として扱う
+  const AddressMapModalAny: any = AddressMapModal;
 
   const showForm = showNewProjectForm || !!editingProject;
+
+  /** 検索クエリに一致するか（部分一致・大文字小文字無視） */
+  const matchSearch = (query: string, ...texts: (string | undefined | null)[]) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return texts.some((t) => t != null && String(t).toLowerCase().includes(q));
+  };
+  const filteredProjects = projects.filter(
+    (p) =>
+      matchSearch(projectSearch, p.siteName, p.customerName, p.siteAddress, p.title)
+  );
+  const filteredWorkGroups = workGroups.filter((wg) =>
+    matchSearch(workGroupSearch, wg.name)
+  );
+  const filteredCustomers = customers.filter(
+    (c) =>
+      matchSearch(customerSearch, c.name, c.address, c.contactPerson, c.phone)
+  );
+  const filteredFormMembers = members.filter((m) =>
+    matchSearch(formDefaultMemberSearch, m.name)
+  );
+
+  /** 過去案件コピー用の一意ラベル（現場名・取引先・期間） */
+  const getCopySourceProjectLabel = (p: Project) =>
+    `${p.siteName}（${p.customerName}） ${p.startDate}～${p.endDate}`;
+
+  const handleCopySourceProjectInputChange = (value: string) => {
+    setCopySourceProjectInput(value);
+    const matched = projects.find((p) => getCopySourceProjectLabel(p) === value.trim());
+    if (matched) {
+      setCopySourceProjectId(matched.id);
+      handleCopyFromProject(matched.id);
+    } else {
+      setCopySourceProjectId("");
+    }
+  };
 
   // モーダル表示時: マウント後に開くアニメーション開始
   useEffect(() => {
@@ -98,9 +193,17 @@ export default function ProjectsPage() {
         contractAmount: null,
         siteAddress: "",
         startDate: "",
-        endDate: ""
+        endDate: "",
+        memo: "",
+        siteStatus: "組立"
       });
-      setWorkGroups([]);
+      setSelectedWorkGroupIds([]);
+      setSelectedCustomerId("");
+      setProjectHolidayWeekdays([]);
+      setSelectedDefaultMemberIds([]);
+      setProjectPhasesState([]);
+      setCopySourceProjectId("");
+      setCopySourceProjectInput("");
       setErrors({});
     }, 220);
     return () => clearTimeout(t);
@@ -127,10 +230,25 @@ export default function ProjectsPage() {
     return () => clearTimeout(t);
   }, [deleteModalClosing]);
 
-  // Load projects from database on mount
+  // Load projects, customers, members on mount
   useEffect(() => {
     loadProjects();
+    loadCustomers();
+    loadWorkGroups();
+    getMembers().then(setMembers).catch(() => setMembers([]));
   }, []);
+
+  const loadCustomers = async () => {
+    try {
+      setCustomersLoading(true);
+      const data = await getCustomers();
+      setCustomers(data);
+    } catch (error) {
+      console.error("Failed to load customers:", error);
+    } finally {
+      setCustomersLoading(false);
+    }
+  };
 
   const loadProjects = async () => {
     try {
@@ -147,7 +265,353 @@ export default function ProjectsPage() {
     }
   };
 
+  const loadWorkGroups = async () => {
+    try {
+      setWorkGroupsLoading(true);
+      const data = await getWorkGroups();
+      setWorkGroupsState(data);
+    } catch (error) {
+      console.error("Failed to load work groups:", error);
+      setWorkGroupsState([]);
+    } finally {
+      setWorkGroupsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "work_lines") loadWorkGroups();
+  }, [activeTab]);
+
+  const openNewWorkGroupModal = () => {
+    setEditingWorkGroup(null);
+    setNewWorkGroupName("");
+    setNewWorkGroupColor(WORK_GROUP_DEFAULT_COLORS[0]);
+    setShowWorkGroupModal(true);
+    setWorkGroupModalClosing(false);
+  };
+
+  const openEditWorkGroupModal = (wg: WorkGroup) => {
+    setEditingWorkGroup(wg);
+    setNewWorkGroupName(wg.name);
+    setNewWorkGroupColor(wg.color ?? WORK_GROUP_DEFAULT_COLORS[0]);
+    setShowWorkGroupModal(true);
+    setWorkGroupModalClosing(false);
+  };
+
+  const closeWorkGroupModal = () => setWorkGroupModalClosing(true);
+
+  const handleWorkGroupSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newWorkGroupName.trim();
+    if (!name) {
+      toast.error("作業班名を入力してください。");
+      return;
+    }
+    // 同名の作業班が既に存在しないかチェック（編集時は自分自身を除外）
+    const duplicate = workGroups.some(
+      (wg) =>
+        wg.name.trim() === name &&
+        (!editingWorkGroup || wg.id !== editingWorkGroup.id)
+    );
+    if (duplicate) {
+      toast.error("同じ作業班名が既に登録されています。別の名前を入力してください。");
+      return;
+    }
+    setIsWorkGroupSubmitting(true);
+    try {
+      if (editingWorkGroup) {
+        await updateWorkGroup(editingWorkGroup.id, { name, color: newWorkGroupColor });
+        toast.success("作業班を更新しました。");
+      } else {
+        await createWorkGroup({ name, color: newWorkGroupColor });
+        toast.success("作業班を登録しました。");
+      }
+      loadWorkGroups();
+      setWorkGroupModalClosing(true);
+    } catch (error) {
+      console.error("Failed to save work group:", error);
+      toast.error("保存に失敗しました。");
+    } finally {
+      setIsWorkGroupSubmitting(false);
+    }
+  };
+
+  const handleWorkGroupDeleteClick = (id: string) => {
+    setDeletingWorkGroupId(id);
+    setWorkGroupDeleteModalClosing(false);
+  };
+
+  const handleWorkGroupDeleteConfirm = async () => {
+    if (!deletingWorkGroupId) return;
+    setIsWorkGroupDeleting(true);
+    try {
+      // 対象の作業班を取得（同名の work_line を削除するために利用）
+      const targetWorkGroup = workGroups.find((wg) => wg.id === deletingWorkGroupId);
+
+      // まず作業班マスターを削除
+      await deleteWorkGroup(deletingWorkGroupId);
+
+      // 続いて、この作業班名を持つ作業班行（work_lines）を工程表から削除
+      if (targetWorkGroup) {
+        try {
+          const lines = await getWorkLines();
+          const relatedLines = lines.filter((wl) => wl.name === targetWorkGroup.name);
+          for (const wl of relatedLines) {
+            try {
+              await deleteWorkLine(wl.id);
+            } catch (err) {
+              console.error(`Failed to delete work line "${wl.name}" (${wl.id}):`, err);
+              toast.error(`工程表の作業班「${wl.name}」の削除に失敗しました。`);
+            }
+          }
+        } catch (err) {
+          console.error("Failed to load work lines for delete:", err);
+          toast.error("工程表の作業班削除のための読み込みに失敗しました。");
+        }
+      }
+
+      loadWorkGroups();
+      setWorkGroupDeleteModalClosing(true);
+    } catch (error) {
+      console.error("Failed to delete work group:", error);
+      toast.error("削除に失敗しました。");
+    } finally {
+      setIsWorkGroupDeleting(false);
+    }
+  };
+
+  const openNewCustomerModal = () => {
+    setEditingCustomer(null);
+    setNewCustomerName("");
+    setNewCustomerAddress("");
+    setNewCustomerPhone("");
+    setNewCustomerContactPerson("");
+    setCustomerMemberRows([]);
+    setShowCustomerModal(true);
+    setCustomerModalClosing(false);
+  };
+
+  const openEditCustomerModal = async (c: Customer) => {
+    setEditingCustomer(c);
+    setNewCustomerName(c.name);
+    setNewCustomerAddress(c.address ?? "");
+    setNewCustomerPhone(c.phone ?? "");
+    setNewCustomerContactPerson(c.contactPerson ?? "");
+    setShowCustomerModal(true);
+    setCustomerModalClosing(false);
+    try {
+      const members = await getCustomerMembers(c.id);
+      setCustomerMemberRows(
+        members.map((m, i) => ({
+          id: m.id,
+          name: m.name,
+          color: m.color ?? WORK_GROUP_DEFAULT_COLORS[i % WORK_GROUP_DEFAULT_COLORS.length]
+        }))
+      );
+    } catch (error) {
+      console.error("Failed to load customer members:", error);
+      setCustomerMemberRows([]);
+    }
+  };
+
+  const closeCustomerModal = () => setCustomerModalClosing(true);
+
+  const handleCustomerSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newCustomerName.trim();
+    if (!name) {
+      toast.error("取引先会社名を入力してください。");
+      return;
+    }
+    setIsCustomerSubmitting(true);
+    try {
+      const input = {
+        name,
+        address: newCustomerAddress.trim() || undefined,
+        phone: newCustomerPhone.trim() || undefined,
+        contactPerson: newCustomerContactPerson.trim() || undefined,
+      };
+      let customerId: string;
+      if (editingCustomer) {
+        await updateCustomer(editingCustomer.id, input);
+        customerId = editingCustomer.id;
+        const existingIds = new Set(customerMemberRows.filter((r) => r.id).map((r) => r.id!));
+        const currentMembers = await getCustomerMembers(customerId);
+        for (const m of currentMembers) {
+          if (!existingIds.has(m.id)) await deleteCustomerMember(m.id);
+        }
+        for (const row of customerMemberRows) {
+          const n = row.name.trim();
+          if (!n) continue;
+          const color = row.color || WORK_GROUP_DEFAULT_COLORS[0];
+          if (row.id) {
+            await updateCustomerMember(row.id, n, color);
+          } else {
+            await createCustomerMember(customerId, n, color);
+          }
+        }
+        toast.success("取引先会社を更新しました。");
+      } else {
+        const created = await createCustomer(input);
+        customerId = created.id;
+        for (const row of customerMemberRows) {
+          const n = row.name.trim();
+          if (n) await createCustomerMember(customerId, n, row.color || WORK_GROUP_DEFAULT_COLORS[0]);
+        }
+        toast.success("取引先会社を登録しました。");
+      }
+      loadCustomers();
+      setCustomerModalClosing(true);
+    } catch (error) {
+      console.error("Failed to save customer:", error);
+      toast.error("保存に失敗しました。");
+    } finally {
+      setIsCustomerSubmitting(false);
+    }
+  };
+
+  const addCustomerMemberRow = () => {
+    setCustomerMemberRows((prev) => [
+      ...prev,
+      { name: "", color: WORK_GROUP_DEFAULT_COLORS[prev.length % WORK_GROUP_DEFAULT_COLORS.length] }
+    ]);
+  };
+
+  const removeCustomerMemberRow = (index: number) => {
+    setCustomerMemberRows((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const updateCustomerMemberRowName = (index: number, value: string) => {
+    setCustomerMemberRows((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], name: value };
+      return next;
+    });
+  };
+
+  const updateCustomerMemberRowColor = (index: number, color: string) => {
+    setCustomerMemberRows((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], color };
+      return next;
+    });
+  };
+
+  const handleCustomerDeleteClick = (id: string) => {
+    setDeletingCustomerId(id);
+    setCustomerDeleteModalClosing(false);
+  };
+
+  const handleCustomerDeleteConfirm = async () => {
+    if (!deletingCustomerId) return;
+    setIsCustomerDeleting(true);
+    try {
+      await deleteCustomer(deletingCustomerId);
+      loadCustomers();
+      setCustomerDeleteModalClosing(true);
+    } catch (error) {
+      console.error("Failed to delete customer:", error);
+      toast.error("削除に失敗しました。");
+    } finally {
+      setIsCustomerDeleting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!showWorkGroupModal || workGroupModalClosing) return;
+    setWorkGroupModalAnimatingIn(false);
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setWorkGroupModalAnimatingIn(true));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [showWorkGroupModal, workGroupModalClosing]);
+
+  useEffect(() => {
+    if (!workGroupModalClosing) return;
+    const t = setTimeout(() => {
+      setShowWorkGroupModal(false);
+      setEditingWorkGroup(null);
+      setWorkGroupModalClosing(false);
+      setWorkGroupModalAnimatingIn(false);
+    }, 220);
+    return () => clearTimeout(t);
+  }, [workGroupModalClosing]);
+
+  useEffect(() => {
+    if (!deletingWorkGroupId || workGroupDeleteModalClosing) return;
+    setWorkGroupDeleteAnimatingIn(false);
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setWorkGroupDeleteAnimatingIn(true));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [deletingWorkGroupId, workGroupDeleteModalClosing]);
+
+  useEffect(() => {
+    if (!workGroupDeleteModalClosing) return;
+    const t = setTimeout(() => {
+      setDeletingWorkGroupId(null);
+      setWorkGroupDeleteModalClosing(false);
+      setWorkGroupDeleteAnimatingIn(false);
+    }, 220);
+    return () => clearTimeout(t);
+  }, [workGroupDeleteModalClosing]);
+
+  useEffect(() => {
+    if (!showCustomerModal || customerModalClosing) return;
+    setCustomerModalAnimatingIn(false);
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setCustomerModalAnimatingIn(true));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [showCustomerModal, customerModalClosing]);
+
+  useEffect(() => {
+    if (!customerModalClosing) return;
+    const t = setTimeout(() => {
+      setShowCustomerModal(false);
+      setEditingCustomer(null);
+      setNewCustomerName("");
+      setNewCustomerAddress("");
+      setNewCustomerPhone("");
+      setNewCustomerContactPerson("");
+      setCustomerMemberRows([]);
+      setCustomerModalClosing(false);
+      setCustomerModalAnimatingIn(false);
+    }, 220);
+    return () => clearTimeout(t);
+  }, [customerModalClosing]);
+
+  useEffect(() => {
+    if (!deletingCustomerId || customerDeleteModalClosing) return;
+    setCustomerDeleteAnimatingIn(false);
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setCustomerDeleteAnimatingIn(true));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [deletingCustomerId, customerDeleteModalClosing]);
+
+  useEffect(() => {
+    if (!customerDeleteModalClosing) return;
+    const t = setTimeout(() => {
+      setDeletingCustomerId(null);
+      setCustomerDeleteModalClosing(false);
+      setCustomerDeleteAnimatingIn(false);
+    }, 220);
+    return () => clearTimeout(t);
+  }, [customerDeleteModalClosing]);
+
   const isUkeoi = form.contractType === "請負";
+
+  const customerOptions = (() => {
+    const names = new Set(customers.map((c) => c.name));
+    const list = [...customers];
+    if (editingProject && form.customerName && !names.has(form.customerName)) {
+      list.push({ id: "__current__", name: form.customerName });
+    }
+    return list;
+  })();
+
+  const selectedCustomerIdForSave = selectedCustomerId && selectedCustomerId !== "__current__" ? selectedCustomerId : undefined;
 
   const handleChange = (
     field: keyof FormState,
@@ -174,34 +638,64 @@ export default function ProjectsPage() {
     setIsSubmitting(true);
 
     try {
+      // 同一作業班名・重複日付のチェック（他案件との重複を禁止）
+      const allLines = await getWorkLines();
+      const selectedGroupNames = new Set(
+        workGroups.filter((wg) => selectedWorkGroupIds.includes(wg.id)).map((wg) => wg.name)
+      );
+      for (const wl of allLines) {
+        if (!selectedGroupNames.has(wl.name)) continue;
+        const existingProject = projects.find((p) => p.id === wl.projectId);
+        if (!existingProject) continue;
+        const start = form.startDate <= form.endDate ? form.startDate : form.endDate;
+        const end = form.startDate <= form.endDate ? form.endDate : form.startDate;
+        const exStart = existingProject.startDate;
+        const exEnd = existingProject.endDate;
+        const overlapStart = start <= exEnd && exStart <= end ? (exStart > start ? exStart : start) : null;
+        const overlapEnd = start <= exEnd && exStart <= end ? (exEnd < end ? exEnd : end) : null;
+        if (overlapStart && overlapEnd) {
+          toast.error(`${overlapStart}は、案件「${existingProject.siteName}」がすでに登録されているため、現在の案件を登録できません。`);
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       const newProject: Omit<Project, 'id'> = {
         title: form.title || form.siteName, // Use siteName as title if title is empty
+        customerId: selectedCustomerIdForSave,
         customerName: form.customerName,
         siteName: form.siteName,
         contractType: form.contractType as ContractType,
         contractAmount: isUkeoi ? form.contractAmount ?? 0 : undefined,
+        memo: form.memo?.trim() || undefined,
+        siteStatus: (projectPhases[0]?.siteStatus ?? form.siteStatus ?? "組立") as Project["siteStatus"],
+        defaultHolidayWeekdays: projectHolidayWeekdays.length ? projectHolidayWeekdays : [],
         siteAddress: form.siteAddress,
         startDate: form.startDate,
         endDate: form.endDate
       };
 
       const createdProject = await createProject(newProject);
-      
-      for (const row of workGroups) {
-        const name = row.name.trim();
-        if (!name) continue;
+
+      const selectedGroups = workGroups.filter((wg) => selectedWorkGroupIds.includes(wg.id));
+      for (const wg of selectedGroups) {
         try {
           await createWorkLine({
             projectId: createdProject.id,
-            name,
-            color: row.color || WORK_GROUP_DEFAULT_COLORS[0]
+            name: wg.name,
+            color: wg.color || WORK_GROUP_DEFAULT_COLORS[0]
           });
         } catch (error) {
-          console.error(`Failed to create work line "${name}":`, error);
-          toast.error(`ワークグループ「${name}」の作成に失敗しました。`);
+          console.error(`Failed to create work line "${wg.name}":`, error);
+          toast.error(`作業班「${wg.name}」の紐づけに失敗しました。`);
         }
       }
-      
+      await setProjectDefaultMembers(createdProject.id, selectedDefaultMemberIds);
+      const phasesToSave = projectPhases.length > 0
+        ? projectPhases
+        : [{ startDate: form.startDate, endDate: form.endDate, siteStatus: form.siteStatus ?? "組立" }];
+      await setProjectPhases(createdProject.id, phasesToSave);
+
       setProjects((prev) => [createdProject, ...prev]);
       toast.success("案件が登録されました。");
       setFormModalClosing(true);
@@ -218,6 +712,8 @@ export default function ProjectsPage() {
 
   const handleEdit = async (project: Project) => {
     setEditingProject(project);
+    setSelectedCustomerId(project.customerId ?? "");
+    await loadWorkGroups();
     setForm({
       title: project.title || "",
       customerName: project.customerName,
@@ -226,24 +722,81 @@ export default function ProjectsPage() {
       contractAmount: project.contractAmount ?? null,
       siteAddress: project.siteAddress,
       startDate: project.startDate,
-      endDate: project.endDate
+      endDate: project.endDate,
+      memo: project.memo ?? "",
+      siteStatus: project.siteStatus ?? "組立"
     });
-    
+    setProjectHolidayWeekdays(project.defaultHolidayWeekdays ?? []);
+
     try {
-      const workLines = await getWorkLines(project.id);
-      setWorkGroups(
-        workLines.map((wl, i) => ({
-          id: wl.id,
-          name: wl.name,
-          color: wl.color || WORK_GROUP_DEFAULT_COLORS[i % WORK_GROUP_DEFAULT_COLORS.length]
-        }))
-      );
+      const [lines, wgs, defaultIds, phases] = await Promise.all([
+        getWorkLines(project.id),
+        getWorkGroups(),
+        getProjectDefaultMemberIds(project.id),
+        getProjectPhases(project.id)
+      ]);
+      const wgNames = new Map(wgs.map((wg) => [wg.name, wg.id]));
+      const ids = lines.map((wl) => wgNames.get(wl.name)).filter((id): id is string => !!id);
+      setSelectedWorkGroupIds([...new Set(ids)]);
+      setSelectedDefaultMemberIds(defaultIds);
+      if (phases.length > 0) {
+        setProjectPhasesState(phases.map((p) => ({ startDate: p.startDate, endDate: p.endDate, siteStatus: p.siteStatus })));
+      } else {
+        setProjectPhasesState([{ startDate: project.startDate, endDate: project.endDate, siteStatus: project.siteStatus ?? "組立" }]);
+      }
     } catch (error) {
       console.error("Failed to load work lines:", error);
-      setWorkGroups([]);
+      setSelectedWorkGroupIds([]);
+      setSelectedDefaultMemberIds([]);
+      setProjectPhasesState([]);
     }
-    
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleCopyFromProject = async (projectId: string) => {
+    if (!projectId) return;
+    const src = projects.find((p) => p.id === projectId);
+    if (!src) return;
+
+    // フォーム項目をコピー
+    setForm((prev) => ({
+      ...prev,
+      customerName: src.customerName,
+      siteName: src.siteName,
+      contractType: src.contractType,
+      contractAmount: src.contractAmount ?? null,
+      siteAddress: src.siteAddress,
+      memo: src.memo ?? "",
+      siteStatus: src.siteStatus ?? prev.siteStatus
+    }));
+
+    // 取引先IDを可能であれば紐づけ
+    const customerMatch = customers.find((c) => c.name === src.customerName);
+    setSelectedCustomerId(customerMatch?.id ?? "");
+
+    // 作業班・既定メンバー・工程をコピー
+    try {
+      const [lines, wgs, defaultIds, phases] = await Promise.all([
+        getWorkLines(src.id),
+        getWorkGroups(),
+        getProjectDefaultMemberIds(src.id),
+        getProjectPhases(src.id)
+      ]);
+      const wgNames = new Map(wgs.map((wg) => [wg.name, wg.id]));
+      const ids = lines
+        .map((wl) => wgNames.get(wl.name))
+        .filter((id): id is string => !!id);
+      setSelectedWorkGroupIds([...new Set(ids)]);
+      setSelectedDefaultMemberIds(defaultIds);
+      if (phases.length > 0) {
+        setProjectPhasesState(phases.map((p) => ({ startDate: p.startDate, endDate: p.endDate, siteStatus: p.siteStatus })));
+      } else {
+        setProjectPhasesState([{ startDate: src.startDate, endDate: src.endDate, siteStatus: src.siteStatus ?? "組立" }]);
+      }
+    } catch (error) {
+      console.error("Failed to copy from project:", error);
+    }
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
@@ -266,57 +819,85 @@ export default function ProjectsPage() {
     setIsSubmitting(true);
 
     try {
+      // 同一作業班名・重複日付のチェック（他案件との重複を禁止）
+      const allLines = await getWorkLines();
+      const selectedGroupNames = new Set(
+        workGroups.filter((wg) => selectedWorkGroupIds.includes(wg.id)).map((wg) => wg.name)
+      );
+      const start = form.startDate <= form.endDate ? form.startDate : form.endDate;
+      const end = form.startDate <= form.endDate ? form.endDate : form.startDate;
+      for (const wl of allLines) {
+        if (!selectedGroupNames.has(wl.name)) continue;
+        if (wl.projectId === editingProject.id) continue; // 自案件は除外
+        const existingProject = projects.find((p) => p.id === wl.projectId);
+        if (!existingProject) continue;
+        const exStart = existingProject.startDate;
+        const exEnd = existingProject.endDate;
+        const overlapStart = start <= exEnd && exStart <= end ? (exStart > start ? exStart : start) : null;
+        const overlapEnd = start <= exEnd && exStart <= end ? (exEnd < end ? exEnd : end) : null;
+        if (overlapStart && overlapEnd) {
+          toast.error(`${overlapStart}は、案件「${existingProject.siteName}」がすでに登録されているため、現在の案件を登録できません。`);
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       const updateData: Partial<Omit<Project, 'id'>> = {
         title: form.title || form.siteName,
-      customerName: form.customerName,
-      siteName: form.siteName,
-      contractType: form.contractType as ContractType,
-      contractAmount: isUkeoi ? form.contractAmount ?? 0 : undefined,
-      siteAddress: form.siteAddress,
-      startDate: form.startDate,
-      endDate: form.endDate
-    };
+        customerId: selectedCustomerIdForSave,
+        customerName: form.customerName,
+        siteName: form.siteName,
+        contractType: form.contractType as ContractType,
+        contractAmount: isUkeoi ? form.contractAmount ?? 0 : undefined,
+        memo: form.memo?.trim() || undefined,
+        siteStatus: (projectPhases[0]?.siteStatus ?? form.siteStatus ?? "組立") as Project["siteStatus"],
+        defaultHolidayWeekdays: projectHolidayWeekdays.length ? projectHolidayWeekdays : [],
+        siteAddress: form.siteAddress,
+        startDate: form.startDate,
+        endDate: form.endDate
+      };
 
       const updatedProject = await updateProject(editingProject.id, updateData);
       const currentWorkLines = await getWorkLines(updatedProject.id);
-      const keptIds = new Set(workGroups.filter((r) => r.name.trim() && r.id).map((r) => r.id!));
+      const wantedNames = new Set(
+        workGroups.filter((wg) => selectedWorkGroupIds.includes(wg.id)).map((wg) => wg.name)
+      );
+      const currentByProjectName = new Map(
+        currentWorkLines.map((wl) => [wl.name, wl])
+      );
 
-      for (const row of workGroups) {
-        const name = row.name.trim();
-        if (!name) continue;
-        if (row.id) {
-          if (keptIds.has(row.id)) {
-            try {
-              await updateWorkLine(row.id, { name, color: row.color });
-            } catch (error) {
-              console.error(`Failed to update work line "${name}":`, error);
-              toast.error(`ワークグループ「${name}」の更新に失敗しました。`);
-            }
-          }
-        } else {
+      for (const wg of workGroups) {
+        if (!selectedWorkGroupIds.includes(wg.id)) continue;
+        const existing = currentByProjectName.get(wg.name);
+        if (!existing) {
           try {
             await createWorkLine({
               projectId: updatedProject.id,
-              name,
-              color: row.color || WORK_GROUP_DEFAULT_COLORS[0]
+              name: wg.name,
+              color: wg.color || WORK_GROUP_DEFAULT_COLORS[0]
             });
           } catch (error) {
-            console.error(`Failed to create work line "${name}":`, error);
-            toast.error(`ワークグループ「${name}」の作成に失敗しました。`);
+            console.error(`Failed to create work line "${wg.name}":`, error);
+            toast.error(`作業班「${wg.name}」の紐づけに失敗しました。`);
           }
         }
       }
       for (const wl of currentWorkLines) {
-        if (!keptIds.has(wl.id)) {
+        if (!wantedNames.has(wl.name)) {
           try {
             await deleteWorkLine(wl.id);
           } catch (error) {
             console.error(`Failed to delete work line "${wl.name}":`, error);
-            toast.error(`ワークグループ「${wl.name}」の削除に失敗しました。`);
+            toast.error(`作業班「${wl.name}」の削除に失敗しました。`);
           }
         }
       }
-      
+      await setProjectDefaultMembers(editingProject.id, selectedDefaultMemberIds);
+      const phasesToSave = projectPhases.length > 0
+        ? projectPhases
+        : [{ startDate: form.startDate, endDate: form.endDate, siteStatus: form.siteStatus ?? "組立" }];
+      await setProjectPhases(editingProject.id, phasesToSave);
+
       setProjects((prev) =>
         prev.map((p) => (p.id === updatedProject.id ? updatedProject : p))
       );
@@ -362,7 +943,9 @@ export default function ProjectsPage() {
 
   const openNewProjectForm = () => {
     setEditingProject(null);
+    setSelectedCustomerId("");
     setShowNewProjectForm(true);
+    loadWorkGroups();
     setForm({
       title: "",
       customerName: "",
@@ -371,55 +954,131 @@ export default function ProjectsPage() {
       contractAmount: null,
       siteAddress: "",
       startDate: "",
-      endDate: ""
+      endDate: "",
+      memo: "",
+      siteStatus: "組立"
     });
-    setWorkGroups([]);
+    setSelectedWorkGroupIds([]);
+    setSelectedDefaultMemberIds([]);
+    setProjectPhasesState([]);
     setErrors({});
+    setProjectHolidayWeekdays([]);
   };
 
-  const addWorkGroup = () => {
-    setWorkGroups((prev) => [
+  const addProjectPhase = () => {
+    const last = projectPhases[projectPhases.length - 1];
+    const base = last?.endDate || form.startDate || form.endDate || "";
+    setProjectPhasesState((prev) => [
       ...prev,
-      { name: "", color: WORK_GROUP_DEFAULT_COLORS[prev.length % WORK_GROUP_DEFAULT_COLORS.length] }
+      { startDate: base, endDate: base, siteStatus: "組立" }
     ]);
   };
 
-  const removeWorkGroup = (index: number) => {
-    setWorkGroups((prev) => prev.filter((_, i) => i !== index));
+  const removeProjectPhase = (index: number) => {
+    setProjectPhasesState((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const updateWorkGroupName = (index: number, value: string) => {
-    setWorkGroups((prev) => {
+  const updateProjectPhase = (index: number, field: "startDate" | "endDate" | "siteStatus", value: string) => {
+    setProjectPhasesState((prev) => {
       const next = [...prev];
-      next[index] = { ...next[index], name: value };
+      next[index] = { ...next[index], [field]: value };
+      if (field === "startDate" && value > (next[index].endDate || "")) {
+        next[index].endDate = value;
+      }
       return next;
     });
   };
 
-  const updateWorkGroupColor = (index: number, color: string) => {
-    setWorkGroups((prev) => {
-      const next = [...prev];
-      next[index] = { ...next[index], color };
-      return next;
-    });
+  const toggleWorkGroupSelection = (id: string) => {
+    setSelectedWorkGroupIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   };
+
+  const toggleDefaultMemberSelection = (id: string) => {
+    setSelectedDefaultMemberIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const tabs: { id: TabId; label: string }[] = [
+    { id: "projects", label: "案件管理" },
+    { id: "work_lines", label: "作業班管理" },
+    { id: "customers", label: "取引先会社" }
+  ];
 
   return (
     <AuthGuard requireAdmin={true}>
     <div className="h-screen flex flex-col">
-      <header className="px-4 md:px-6 py-3 border-b border-theme-border flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-theme-text">案件管理</h1>
-        <button
-          type="button"
-          onClick={openNewProjectForm}
-          className="inline-flex items-center px-4 py-2 rounded-md bg-accent text-theme-text text-sm font-medium hover:brightness-110"
-        >
-          新案件登録
-        </button>
+      <header className="px-4 md:px-6 py-3 border-b border-theme-border">
+        <div className="flex items-center justify-between mb-2">
+          <h1 className="text-lg font-semibold text-theme-text">案件管理</h1>
+          {activeTab === "projects" && (
+            <button
+              type="button"
+              onClick={openNewProjectForm}
+              className="inline-flex items-center px-4 py-2 rounded-md bg-accent text-theme-text text-sm font-medium hover:brightness-110"
+            >
+              新案件登録
+            </button>
+          )}
+          {activeTab === "work_lines" && (
+            <button
+              type="button"
+              onClick={openNewWorkGroupModal}
+              className="inline-flex items-center px-4 py-2 rounded-md bg-accent text-theme-text text-sm font-medium hover:brightness-110"
+            >
+              作業班追加
+            </button>
+          )}
+          {activeTab === "customers" && (
+            <button
+              type="button"
+              onClick={openNewCustomerModal}
+              className="inline-flex items-center px-4 py-2 rounded-md bg-accent text-theme-text text-sm font-medium hover:brightness-110"
+            >
+              取引先追加
+            </button>
+          )}
+        </div>
+        <div className="flex gap-1 rounded-lg bg-theme-bg-elevated p-1">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex-1 px-3 py-2 text-xs font-medium rounded-md transition-colors ${
+                activeTab === tab.id
+                  ? "bg-theme-bg-input text-theme-text shadow-sm"
+                  : "text-theme-text-muted hover:text-theme-text"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </header>
       <div className="flex-1 overflow-auto p-3 md:p-4">
+        {activeTab === "projects" && (
         <Card title="案件一覧">
           <div className="space-y-2 text-xs max-h-[calc(100vh-140px)] overflow-auto pr-1">
+            {!isLoading && projects.length > 0 && (
+              <div className="sticky top-0 z-10 bg-theme-card pb-2 -mt-1 pt-1">
+                <input
+                  type="search"
+                  placeholder="現場名・取引先・住所で検索..."
+                  value={projectSearch}
+                  onChange={(e) => setProjectSearch(e.target.value)}
+                  className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2 text-sm placeholder:text-theme-text-muted"
+                  aria-label="案件を検索"
+                />
+                {projectSearch.trim() && (
+                  <p className="mt-1 text-[11px] text-theme-text-muted">
+                    {filteredProjects.length}件 / {projects.length}件
+                  </p>
+                )}
+              </div>
+            )}
             {errors.submit && !isLoading && (
               <div className="mb-2 p-2 bg-red-900/20 border border-red-800 rounded-md">
                 <p className="text-xs text-red-400">{errors.submit}</p>
@@ -432,10 +1091,10 @@ export default function ProjectsPage() {
               <p className="text-theme-text-muted text-xs">読み込み中...</p>
             ) : (
               <>
-            {projects.map((p) => (
+            {filteredProjects.map((p) => (
               <div
                 key={p.id}
-                className="rounded-lg border border-theme-border bg-theme-bg-input text-theme-text px-3 py-2"
+                className="rounded-lg border border-theme-border bg-theme-bg-elevated text-theme-text px-3 py-2"
               >
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="font-semibold min-w-0">{p.siteName}</div>
@@ -479,9 +1138,6 @@ export default function ProjectsPage() {
                   <span className="text-[11px] text-theme-text-muted-strong">
                     {p.customerName}
                   </span>
-                  <span className="text-[11px] inline-flex items-center px-1.5 py-0.5 rounded bg-theme-bg-elevated">
-                    {p.contractType}
-                  </span>
                   {p.contractAmount && (
                     <span className="text-[11px] text-theme-text-muted">
                       ¥{p.contractAmount.toLocaleString()}
@@ -493,15 +1149,150 @@ export default function ProjectsPage() {
                 </div>
               </div>
             ))}
-            {projects.length === 0 && (
+            {filteredProjects.length === 0 && (
               <p className="text-theme-text-muted text-xs">
-                まだ案件が登録されていません。
+                {projectSearch.trim() ? "検索に一致する案件がありません。" : "まだ案件が登録されていません。"}
               </p>
                 )}
               </>
             )}
           </div>
         </Card>
+        )}
+
+        {activeTab === "work_lines" && (
+          <Card title="作業班マスター">
+            <div className="space-y-2 text-xs max-h-[calc(100vh-180px)] overflow-auto pr-1">
+              {!workGroupsLoading && workGroups.length > 0 && (
+                <div className="sticky top-0 z-10 bg-theme-card pb-2 -mt-1 pt-1">
+                  <input
+                    type="search"
+                    placeholder="作業班名で検索..."
+                    value={workGroupSearch}
+                    onChange={(e) => setWorkGroupSearch(e.target.value)}
+                    className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2 text-sm placeholder:text-theme-text-muted"
+                    aria-label="作業班を検索"
+                  />
+                  {workGroupSearch.trim() && (
+                    <p className="mt-1 text-[11px] text-theme-text-muted">
+                      {filteredWorkGroups.length}件 / {workGroups.length}件
+                    </p>
+                  )}
+                </div>
+              )}
+              {workGroupsLoading ? (
+                <p className="text-theme-text-muted text-xs">読み込み中...</p>
+              ) : workGroups.length === 0 ? (
+                <p className="text-theme-text-muted text-xs">
+                  まだ作業班が登録されていません。「作業班追加」から追加してください。案件登録時にプルダウンで選択できます。
+                </p>
+              ) : filteredWorkGroups.length === 0 ? (
+                <p className="text-theme-text-muted text-xs">
+                  検索に一致する作業班がありません。
+                </p>
+              ) : (
+                filteredWorkGroups.map((wg) => (
+                  <div
+                    key={wg.id}
+                    className="rounded-lg border border-theme-border bg-theme-bg-input text-theme-text px-3 py-2 flex items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0 flex-1 flex items-center gap-2">
+                      <span
+                        className="w-4 h-4 rounded-full border border-theme-border shrink-0"
+                        style={{ backgroundColor: wg.color ?? "#6b7280" }}
+                        title="班の色"
+                      />
+                      <span className="font-semibold truncate">{wg.name}</span>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => openEditWorkGroupModal(wg)}
+                        className="px-2 py-1 text-[10px] rounded border border-theme-border bg-theme-bg-elevated hover:bg-theme-bg-elevated-hover text-theme-text-muted-strong"
+                      >
+                        編集
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleWorkGroupDeleteClick(wg.id)}
+                        className="px-2 py-1 text-[10px] rounded border border-red-600 bg-theme-bg-elevated hover:bg-red-900/20 text-red-400"
+                      >
+                        削除
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </Card>
+        )}
+
+        {activeTab === "customers" && (
+          <Card title="取引先会社一覧">
+            <div className="space-y-2 text-xs max-h-[calc(100vh-180px)] overflow-auto pr-1">
+              {!customersLoading && customers.length > 0 && (
+                <div className="sticky top-0 z-10 bg-theme-card pb-2 -mt-1 pt-1">
+                  <input
+                    type="search"
+                    placeholder="会社名・担当者・電話・住所で検索..."
+                    value={customerSearch}
+                    onChange={(e) => setCustomerSearch(e.target.value)}
+                    className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2 text-sm placeholder:text-theme-text-muted"
+                    aria-label="取引先を検索"
+                  />
+                  {customerSearch.trim() && (
+                    <p className="mt-1 text-[11px] text-theme-text-muted">
+                      {filteredCustomers.length}件 / {customers.length}件
+                    </p>
+                  )}
+                </div>
+              )}
+              {customersLoading ? (
+                <p className="text-theme-text-muted text-xs">読み込み中...</p>
+              ) : customers.length === 0 ? (
+                <p className="text-theme-text-muted text-xs">
+                  まだ取引先会社が登録されていません。「取引先追加」から追加してください。
+                </p>
+              ) : filteredCustomers.length === 0 ? (
+                <p className="text-theme-text-muted text-xs">
+                  検索に一致する取引先がありません。
+                </p>
+              ) : (
+                filteredCustomers.map((c) => (
+                  <div
+                    key={c.id}
+                    className="rounded-lg border border-theme-border bg-theme-bg-input text-theme-text px-3 py-2 flex items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold truncate">{c.name}</div>
+                      {(c.address || c.phone || c.contactPerson) && (
+                        <div className="text-[11px] text-theme-text-muted mt-0.5 truncate">
+                          {[c.contactPerson, c.phone, c.address].filter(Boolean).join("　・　")}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => openEditCustomerModal(c)}
+                        className="px-2 py-1 text-[10px] rounded border border-theme-border bg-theme-bg-elevated hover:bg-theme-bg-elevated-hover text-theme-text-muted-strong"
+                      >
+                        編集
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleCustomerDeleteClick(c.id)}
+                        className="px-2 py-1 text-[10px] rounded border border-red-600 bg-theme-bg-elevated hover:bg-red-900/20 text-red-400"
+                      >
+                        削除
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </Card>
+        )}
       </div>
 
       {/* 新規登録・編集モーダル（スマホ対応・開閉アニメーション） */}
@@ -539,15 +1330,53 @@ export default function ProjectsPage() {
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-4">
               <form className="space-y-4 text-sm" onSubmit={editingProject ? handleUpdate : handleSubmit}>
+                {!editingProject && projects.length > 0 && (
+                  <div>
+                    <label className="block mb-1">過去案件からコピー（任意）</label>
+                    <input
+                      list="project-copy-source-list"
+                      className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                      value={copySourceProjectInput}
+                      onChange={(e) => handleCopySourceProjectInputChange(e.target.value)}
+                      placeholder="現場名・取引先で入力 / 選択"
+                      aria-label="過去案件からコピー"
+                    />
+                    <datalist id="project-copy-source-list">
+                      {projects.map((p) => (
+                        <option key={p.id} value={getCopySourceProjectLabel(p)} />
+                      ))}
+                    </datalist>
+                    <p className="mt-1 text-[11px] text-theme-text-muted">
+                      以前の工事や同じ現場の案件を選ぶと、取引先・住所・作業班などをコピーして新規案件を作成できます。
+                    </p>
+                  </div>
+                )}
                 <div>
-                  <label className="block mb-1">取引先会社名</label>
+                  <label className="block mb-1">取引先会社名（ビジネスパートナー）</label>
                   <input
+                    list="project-customer-list"
                     className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
                     value={form.customerName}
-                    onChange={(e) => handleChange("customerName", e.target.value)}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      handleChange("customerName", value);
+                      const match = customers.find((c) => c.name === value.trim());
+                      setSelectedCustomerId(match ? match.id : "");
+                    }}
+                    placeholder="取引先名を入力 / 選択"
                   />
+                  <datalist id="project-customer-list">
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.name} />
+                    ))}
+                  </datalist>
                   {errors.customerName && (
                     <p className="mt-1 text-xs text-red-400">{errors.customerName}</p>
+                  )}
+                  {customers.length === 0 && !editingProject && (
+                    <p className="mt-1 text-[11px] text-theme-text-muted">
+                      「取引先会社」タブでマスターを追加してください。
+                    </p>
                   )}
                 </div>
                 <div>
@@ -589,13 +1418,27 @@ export default function ProjectsPage() {
                     )}
                   </div>
                 )}
-                <div>
-                  <label className="block mb-1">現場住所</label>
-                  <input
-                    className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
-                    value={form.siteAddress}
-                    onChange={(e) => handleChange("siteAddress", e.target.value)}
-                  />
+                <div className="rounded-md border border-theme-border p-3 bg-theme-bg-elevated/30">
+                  <label className="block mb-1 font-medium">現場住所</label>
+                  <div className="flex gap-2 items-start flex-wrap">
+                    <input
+                      className="flex-1 min-w-[140px] rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                      value={form.siteAddress}
+                      onChange={(e) => handleChange("siteAddress", e.target.value)}
+                      placeholder="住所を入力"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowAddressMapModal(true)}
+                      className="shrink-0 px-3 py-2 rounded-md border border-theme-border bg-theme-bg-elevated text-xs text-theme-text hover:bg-theme-bg-elevated-hover font-medium"
+                      aria-label="地図から住所を選ぶ"
+                    >
+                      🗺 地図から選ぶ
+                    </button>
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-theme-text-muted">
+                    「地図から選ぶ」を押すと地図が開き、検索した場所の住所が現場住所に反映されます。
+                  </p>
                   {errors.siteAddress && (
                     <p className="mt-1 text-xs text-red-400">{errors.siteAddress}</p>
                   )}
@@ -621,49 +1464,175 @@ export default function ProjectsPage() {
                   </div>
                 </div>
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block">作業班（ワークグループ）・班の色</label>
+                  <label className="block mb-1">工程（組立・解体など）</label>
+                  <p className="text-[11px] text-theme-text-muted mb-2">
+                    日単位で組立・解体などを設定できます。例: 2/16 組立（1日）、3/16 解体（1日）
+                  </p>
+                  <div className="space-y-2 max-h-48 overflow-y-auto rounded-md border border-theme-border bg-theme-bg-input p-2">
+                    {projectPhases.length === 0 ? (
+                      <p className="text-xs text-theme-text-muted">工程が未設定です。「工程を追加」で登録してください。</p>
+                    ) : (
+                      projectPhases.map((phase, i) => (
+                        <div key={i} className="flex flex-wrap items-center gap-2 p-2 rounded bg-theme-bg-elevated">
+                          <input
+                            type="date"
+                            className="rounded border border-theme-border px-2 py-1 text-[11px] bg-theme-bg-input text-theme-text"
+                            value={phase.startDate}
+                            onChange={(e) => updateProjectPhase(i, "startDate", e.target.value)}
+                          />
+                          <span className="text-theme-text-muted text-[11px]">〜</span>
+                          <input
+                            type="date"
+                            className="rounded border border-theme-border px-2 py-1 text-[11px] bg-theme-bg-input text-theme-text"
+                            value={phase.endDate}
+                            onChange={(e) => updateProjectPhase(i, "endDate", e.target.value)}
+                          />
+                          <input
+                            list={`phase-site-status-list-${i}`}
+                            type="text"
+                            className="rounded border border-theme-border px-2 py-1 text-[11px] bg-theme-bg-input text-theme-text min-w-[72px]"
+                            value={phase.siteStatus}
+                            onChange={(e) => updateProjectPhase(i, "siteStatus", e.target.value)}
+                            placeholder="例: 組立"
+                          />
+                          <datalist id={`phase-site-status-list-${i}`}>
+                            <option value="組立" />
+                            <option value="解体" />
+                            <option value="準備中" />
+                            <option value="搬入" />
+                            <option value="養生" />
+                            <option value="その他" />
+                          </datalist>
+                          <button
+                            type="button"
+                            onClick={() => removeProjectPhase(i)}
+                            className="text-theme-text-muted hover:text-red-400 text-[11px] p-1"
+                            title="削除"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))
+                    )}
                     <button
                       type="button"
-                      onClick={addWorkGroup}
-                      className="text-xs px-2 py-1.5 rounded border border-theme-border bg-theme-bg-elevated hover:bg-theme-bg-elevated-hover text-theme-text-muted-strong"
+                      onClick={addProjectPhase}
+                      className="w-full py-1.5 rounded border border-dashed border-theme-border text-[11px] text-theme-text-muted hover:bg-theme-bg-elevated"
                     >
-                      + 追加
+                      ＋ 工程を追加
                     </button>
                   </div>
-                  <p className="text-[11px] text-theme-text-muted mb-2">
-                    班ごとの色は工程表の「班」列に表示されます。
+                </div>
+                <div>
+                  <label className="block mb-1">この案件の標準 週休日（曜日）</label>
+                  <p className="text-[11px] text-theme-text-muted mb-1">
+                    ここで選んだ曜日は、この案件の期間まとめて配置での「休日」の初期値として使われます。
                   </p>
-                  <div className="space-y-2">
-                    {workGroups.map((row, index) => (
-                      <div key={row.id ?? `new-${index}`} className="flex gap-2 items-center">
-                        <input
-                          type="color"
-                          className="w-9 h-9 rounded border border-theme-border cursor-pointer bg-theme-bg-elevated p-0.5 flex-shrink-0"
-                          value={row.color || WORK_GROUP_DEFAULT_COLORS[0]}
-                          onChange={(e) => updateWorkGroupColor(index, e.target.value)}
-                          title="班の色"
-                        />
-                        <input
-                          type="text"
-                          className="flex-1 min-w-0 rounded-md bg-theme-bg-input border border-theme-border px-3 py-2"
-                          value={row.name}
-                          onChange={(e) => updateWorkGroupName(index, e.target.value)}
-                          placeholder="作業班名を入力"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeWorkGroup(index)}
-                          className="px-3 py-2 rounded-md border border-red-600 bg-theme-bg-elevated hover:bg-red-900/20 text-red-400 text-xs flex-shrink-0"
-                        >
-                          削除
-                        </button>
-                      </div>
+                  <div className="flex gap-1">
+                    {["日", "月", "火", "水", "木", "金", "土"].map((label, i) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() =>
+                          setProjectHolidayWeekdays((prev) =>
+                            prev.includes(i) ? prev.filter((d) => d !== i) : [...prev, i]
+                          )
+                        }
+                        className={`w-8 h-8 rounded-full text-[11px] font-medium border transition-colors ${
+                          projectHolidayWeekdays.includes(i)
+                            ? "bg-accent border-accent text-white"
+                            : "bg-theme-bg-input text-theme-text border-theme-border hover:bg-theme-bg-elevated"
+                        }`}
+                      >
+                        {label}
+                      </button>
                     ))}
-                    {workGroups.length === 0 && (
+                  </div>
+                </div>
+                <div>
+                  <label className="block mb-1">メモ</label>
+                  <textarea
+                    className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2 min-h-[80px]"
+                    value={form.memo ?? ""}
+                    onChange={(e) => handleChange("memo", e.target.value)}
+                    placeholder="現場の注意事項や共有したい情報を自由に記入できます（任意）"
+                  />
+                </div>
+                <div>
+                  <label className="block mb-1">作業班</label>
+                  <p className="text-[11px] text-theme-text-muted mb-2">
+                    「作業班管理」タブで登録した班から選択します。複数選択できます。
+                  </p>
+                  <div className="space-y-2 max-h-40 overflow-y-auto rounded-md border border-theme-border bg-theme-bg-input p-2">
+                    {workGroups.length === 0 ? (
                       <p className="text-xs text-theme-text-muted">
-                        「+ 追加」で作業班を追加してください
+                        「作業班管理」タブで班を追加してください。
                       </p>
+                    ) : (
+                      workGroups.map((wg) => (
+                        <label
+                          key={wg.id}
+                          className="flex items-center gap-2 cursor-pointer hover:bg-theme-bg-elevated rounded px-2 py-1.5"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedWorkGroupIds.includes(wg.id)}
+                            onChange={() => toggleWorkGroupSelection(wg.id)}
+                            className="rounded border-theme-border"
+                          />
+                          <span
+                            className="w-3 h-3 rounded-full shrink-0"
+                            style={{ backgroundColor: wg.color ?? "#6b7280" }}
+                          />
+                          <span className="text-sm">{wg.name}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="block mb-1">既定メンバー（工程表で初期選択される）</label>
+                  <p className="text-[11px] text-theme-text-muted mb-2">
+                    「メンバー管理」で登録したメンバーを選択します。工程表で人員配置する際、このメンバーが初期選択されます。追加のメンバーも配置可能です。
+                  </p>
+                  {members.length > 3 && (
+                    <input
+                      type="search"
+                      placeholder="メンバー名で検索..."
+                      value={formDefaultMemberSearch}
+                      onChange={(e) => setFormDefaultMemberSearch(e.target.value)}
+                      className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-2 py-1.5 text-sm mb-2 placeholder:text-theme-text-muted"
+                      aria-label="既定メンバーを検索"
+                    />
+                  )}
+                  <div className="space-y-2 max-h-40 overflow-y-auto rounded-md border border-theme-border bg-theme-bg-input p-2">
+                    {members.length === 0 ? (
+                      <p className="text-xs text-theme-text-muted">
+                        メンバー管理でメンバーを登録してください。
+                      </p>
+                    ) : filteredFormMembers.length === 0 ? (
+                      <p className="text-xs text-theme-text-muted">
+                        検索に一致するメンバーがありません。
+                      </p>
+                    ) : (
+                      filteredFormMembers.map((m) => (
+                        <label
+                          key={m.id}
+                          className="flex items-center gap-2 cursor-pointer hover:bg-theme-bg-elevated rounded px-2 py-1.5"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedDefaultMemberIds.includes(m.id)}
+                            onChange={() => toggleDefaultMemberSelection(m.id)}
+                            className="rounded border-theme-border"
+                          />
+                          <span
+                            className="w-3 h-3 rounded-full shrink-0"
+                            style={{ backgroundColor: m.color ?? "#6b7280" }}
+                          />
+                          <span className="text-sm">{m.name}</span>
+                        </label>
+                      ))
                     )}
                   </div>
                 </div>
@@ -691,6 +1660,208 @@ export default function ProjectsPage() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <AddressMapModalAny
+        open={showAddressMapModal}
+        initialQuery={
+          (form.siteAddress || "").trim() ||
+          `${form.customerName} ${form.siteName}`.trim() ||
+          undefined
+        }
+        onSelect={(address: string) => {
+          if (address) {
+            handleChange("siteAddress", address);
+          }
+        }}
+        onClose={() => setShowAddressMapModal(false)}
+      />
+
+      {/* 作業班マスター 登録・編集モーダル */}
+      {showWorkGroupModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4">
+          <button
+            type="button"
+            className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
+              workGroupModalClosing || !workGroupModalAnimatingIn ? "opacity-0" : "opacity-100"
+            }`}
+            aria-label="閉じる"
+            onClick={closeWorkGroupModal}
+          />
+          <div
+            className={`relative w-full max-w-md max-h-[100dvh] md:max-h-[90vh] flex flex-col bg-theme-card border border-theme-border rounded-none md:rounded-xl shadow-xl text-theme-text transition-all duration-200 ease-out ${
+              workGroupModalClosing || !workGroupModalAnimatingIn
+                ? "opacity-0 scale-95 translate-y-2"
+                : "opacity-100 scale-100 translate-y-0"
+            }`}
+          >
+            <div className="flex items-center justify-between shrink-0 px-4 py-3 border-b border-theme-border">
+              <h2 className="text-base font-semibold">
+                {editingWorkGroup ? "作業班編集" : "作業班追加"}
+              </h2>
+              <button type="button" onClick={closeWorkGroupModal} className="p-2 -mr-2 rounded-md text-theme-text-muted hover:bg-theme-bg-elevated" aria-label="閉じる">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <form className="p-4 space-y-4" onSubmit={handleWorkGroupSubmit}>
+              <div>
+                <label className="block mb-1 text-sm">作業班名</label>
+                <input
+                  className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                  value={newWorkGroupName}
+                  onChange={(e) => setNewWorkGroupName(e.target.value)}
+                  placeholder="例: A班、電気班"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-sm">班の色（工程表での表示色）</label>
+                <input
+                  type="color"
+                  className="w-10 h-10 rounded border border-theme-border cursor-pointer bg-theme-bg-elevated p-0.5"
+                  value={newWorkGroupColor}
+                  onChange={(e) => setNewWorkGroupColor(e.target.value)}
+                />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={closeWorkGroupModal} disabled={isWorkGroupSubmitting} className="px-4 py-2.5 rounded-md border border-theme-border text-theme-text text-sm hover:bg-theme-bg-elevated disabled:opacity-50">
+                  キャンセル
+                </button>
+                <button type="submit" disabled={isWorkGroupSubmitting} className="px-4 py-2.5 rounded-md bg-accent text-theme-text text-sm hover:brightness-110 disabled:opacity-50">
+                  {isWorkGroupSubmitting ? "保存中..." : "保存"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 作業班マスター 削除確認モーダル */}
+      {deletingWorkGroupId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button type="button" className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${workGroupDeleteModalClosing || !workGroupDeleteAnimatingIn ? "opacity-0" : "opacity-100"}`} aria-label="閉じる" onClick={() => setWorkGroupDeleteModalClosing(true)} />
+          <div className={`relative max-w-[400px] w-full rounded-xl bg-theme-bg-input border border-theme-border shadow-lg p-4 text-theme-text transition-all duration-200 ease-out ${workGroupDeleteModalClosing || !workGroupDeleteAnimatingIn ? "opacity-0 scale-95 translate-y-2" : "opacity-100 scale-100 translate-y-0"}`}>
+            <h3 className="text-sm font-semibold mb-2">作業班の削除</h3>
+            <p className="text-xs text-theme-text-muted mb-4">
+              この作業班を削除してもよろしいですか？この班に紐づく工程表上の作業班行（work_lines）や、その行に割り当てられた人員・ロック情報も合わせて削除されます。
+            </p>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setWorkGroupDeleteModalClosing(true)} disabled={isWorkGroupDeleting} className="px-4 py-2 rounded-md border border-theme-border text-theme-text text-xs hover:bg-theme-bg-elevated disabled:opacity-50">キャンセル</button>
+              <button type="button" onClick={handleWorkGroupDeleteConfirm} disabled={isWorkGroupDeleting} className="px-4 py-2 rounded-md bg-red-600 text-xs font-medium hover:bg-red-700 disabled:opacity-50">{isWorkGroupDeleting ? "削除中..." : "削除"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 取引先会社 登録・編集モーダル */}
+      {showCustomerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4">
+          <button type="button" className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${customerModalClosing || !customerModalAnimatingIn ? "opacity-0" : "opacity-100"}`} aria-label="閉じる" onClick={closeCustomerModal} />
+          <div className={`relative w-full max-w-md max-h-[100dvh] md:max-h-[90vh] flex flex-col bg-theme-card border border-theme-border rounded-none md:rounded-xl shadow-xl text-theme-text transition-all duration-200 ease-out ${customerModalClosing || !customerModalAnimatingIn ? "opacity-0 scale-95 translate-y-2" : "opacity-100 scale-100 translate-y-0"}`}>
+            <div className="flex items-center justify-between shrink-0 px-4 py-3 border-b border-theme-border">
+              <h2 className="text-base font-semibold">{editingCustomer ? "取引先編集" : "取引先追加"}</h2>
+              <button type="button" onClick={closeCustomerModal} className="p-2 -mr-2 rounded-md text-theme-text-muted hover:bg-theme-bg-elevated" aria-label="閉じる">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <form className="p-4 space-y-4" onSubmit={handleCustomerSubmit}>
+              <div>
+                <label className="block mb-1 text-sm">取引先会社名</label>
+                <input
+                  className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                  value={newCustomerName}
+                  onChange={(e) => setNewCustomerName(e.target.value)}
+                  placeholder="会社名を入力"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-sm">住所</label>
+                <input
+                  className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                  value={newCustomerAddress}
+                  onChange={(e) => setNewCustomerAddress(e.target.value)}
+                  placeholder="住所を入力"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-sm">電話番号</label>
+                <input
+                  className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                  type="tel"
+                  value={newCustomerPhone}
+                  onChange={(e) => setNewCustomerPhone(e.target.value)}
+                  placeholder="03-1234-5678"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-sm">担当者</label>
+                <input
+                  className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
+                  value={newCustomerContactPerson}
+                  onChange={(e) => setNewCustomerContactPerson(e.target.value)}
+                  placeholder="担当者名を入力"
+                />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm">取引先メンバー（ビジネスパートナー担当者）</label>
+                  <button type="button" onClick={addCustomerMemberRow} className="text-xs px-2 py-1.5 rounded border border-theme-border bg-theme-bg-elevated hover:bg-theme-bg-elevated-hover text-theme-text-muted-strong">
+                    + 追加
+                  </button>
+                </div>
+                <p className="text-[11px] text-theme-text-muted mb-2">
+                  案件でこの取引先を選択すると、工程表に担当者名が表示されます。
+                </p>
+                <div className="space-y-2 max-h-32 overflow-y-auto rounded-md border border-theme-border bg-theme-bg-input p-2">
+                  {customerMemberRows.map((row, index) => (
+                    <div key={row.id ?? `new-${index}`} className="flex gap-2 items-center">
+                      <input
+                        type="color"
+                        className="w-9 h-9 rounded-md border border-theme-border cursor-pointer bg-theme-bg-input p-0.5 flex-shrink-0"
+                        value={row.color || WORK_GROUP_DEFAULT_COLORS[0]}
+                        onChange={(e) => updateCustomerMemberRowColor(index, e.target.value)}
+                        title="表示色"
+                      />
+                      <input
+                        type="text"
+                        className="flex-1 min-w-0 rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-1.5 text-sm"
+                        value={row.name}
+                        onChange={(e) => updateCustomerMemberRowName(index, e.target.value)}
+                        placeholder="担当者名"
+                      />
+                      <button type="button" onClick={() => removeCustomerMemberRow(index)} className="px-2 py-1.5 text-xs rounded border border-red-600 bg-theme-bg-elevated hover:bg-red-900/20 text-red-400">
+                        削除
+                      </button>
+                    </div>
+                  ))}
+                  {customerMemberRows.length === 0 && (
+                    <p className="text-xs text-theme-text-muted">「+ 追加」で担当者を追加</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={closeCustomerModal} disabled={isCustomerSubmitting} className="px-4 py-2.5 rounded-md border border-theme-border text-theme-text text-sm hover:bg-theme-bg-elevated disabled:opacity-50">キャンセル</button>
+                <button type="submit" disabled={isCustomerSubmitting} className="px-4 py-2.5 rounded-md bg-accent text-theme-text text-sm hover:brightness-110 disabled:opacity-50">{isCustomerSubmitting ? "保存中..." : "保存"}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 取引先会社 削除確認モーダル */}
+      {deletingCustomerId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button type="button" className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${customerDeleteModalClosing || !customerDeleteAnimatingIn ? "opacity-0" : "opacity-100"}`} aria-label="閉じる" onClick={() => setCustomerDeleteModalClosing(true)} />
+          <div className={`relative max-w-[400px] w-full rounded-xl bg-theme-bg-input border border-theme-border shadow-lg p-4 text-theme-text transition-all duration-200 ease-out ${customerDeleteModalClosing || !customerDeleteAnimatingIn ? "opacity-0 scale-95 translate-y-2" : "opacity-100 scale-100 translate-y-0"}`}>
+            <h3 className="text-sm font-semibold mb-2">取引先会社の削除</h3>
+            <p className="text-xs text-theme-text-muted mb-4">この取引先を削除してもよろしいですか？案件の取引先名には影響しません。</p>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setCustomerDeleteModalClosing(true)} disabled={isCustomerDeleting} className="px-4 py-2 rounded-md border border-theme-border text-theme-text text-xs hover:bg-theme-bg-elevated disabled:opacity-50">キャンセル</button>
+              <button type="button" onClick={handleCustomerDeleteConfirm} disabled={isCustomerDeleting} className="px-4 py-2 rounded-md bg-red-600 text-xs font-medium hover:bg-red-700 disabled:opacity-50">{isCustomerDeleting ? "削除中..." : "削除"}</button>
             </div>
           </div>
         </div>

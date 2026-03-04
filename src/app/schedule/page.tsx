@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { addDays, format } from "date-fns";
 import { ja } from "date-fns/locale";
 import { Card } from "@/components/ui/card";
@@ -16,7 +17,11 @@ import { AuthGuard } from "@/components/AuthGuard";
 import toast from "react-hot-toast";
 import { getWorkLines, getAssignments, createAssignments, deleteAssignments, getMembers } from "@/lib/supabase/schedule";
 import { getProjects } from "@/lib/supabase/projects";
+import { getProjectDefaultMemberIds } from "@/lib/supabase/projectDefaultMembers";
+import { getProjectPhasesMap, getPhaseStatusForDate } from "@/lib/supabase/projectPhases";
+import { getCustomerMembersByCustomerIds } from "@/lib/supabase/customerMembers";
 import type { Project } from "@/domain/projects/types";
+import type { CustomerMember } from "@/lib/supabase/customerMembers";
 
 // カレンダー上の丸アイコン用の省略名を生成
 const getMemberShortName = (name: string): string => {
@@ -34,6 +39,13 @@ const getMemberShortName = (name: string): string => {
   return name.slice(0, 2);
 };
 
+/** 丸の下に表示する名前（約4文字） */
+const getMemberNameLabel = (name: string, maxLen: number = 4): string => {
+  if (!name) return "";
+  const trimmed = name.trim();
+  return trimmed.length <= maxLen ? trimmed : trimmed.slice(0, maxLen);
+};
+
 /** メンバーIDから一貫した色を取得（色分け表示用） */
 const MEMBER_COLORS = [
   "#3b82f6", "#f97316", "#22c55e", "#eab308", "#a855f7",
@@ -43,8 +55,23 @@ const MEMBER_COLORS = [
 
 function getMemberColor(memberId: string, members: Member[]): string {
   const idx = members.findIndex((m) => m.id === memberId);
+  const member = idx >= 0 ? members[idx] : undefined;
+  if (member?.color) return member.color;
   if (idx >= 0) return MEMBER_COLORS[idx % MEMBER_COLORS.length];
   return MEMBER_COLORS[0];
+}
+
+/** 工程ステータス（組立・解体・商用など）の色分け */
+const PHASE_STATUS_COLORS: Record<string, { bg: string; border: string; text: string }> = {
+  組立: { bg: "bg-blue-500/20", border: "border-blue-500/60", text: "text-blue-200" },
+  解体: { bg: "bg-red-500/20", border: "border-red-500/60", text: "text-red-200" },
+  商用: { bg: "bg-amber-500/20", border: "border-amber-500/60", text: "text-amber-200" },
+  準備中: { bg: "bg-amber-500/20", border: "border-amber-500/60", text: "text-amber-200" },
+  その他: { bg: "bg-slate-500/20", border: "border-slate-500/60", text: "text-slate-300" },
+};
+
+function getPhaseStatusStyle(status: string) {
+  return PHASE_STATUS_COLORS[status] ?? PHASE_STATUS_COLORS["その他"];
 }
 
 // 作業班名の省略表示用（スマートフォン向け）
@@ -55,6 +82,7 @@ const getWorkLineShortName = (name: string): string => {
 };
 
 const MOBILE_BREAKPOINT = 768;
+const WORK_LINE_ORDER_KEY = "schedule-work-line-order";
 
 function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = useState(false);
@@ -77,14 +105,18 @@ function useIsMobile(): boolean {
 
 // mockLinesは削除し、データベースから取得する
 
-const DAYS_VISIBLE_IN_VIEWPORT = 7; // 画面に表示する日数
-const ROWS_VISIBLE_IN_VIEWPORT = 4; // 1画面に表示する作業班の行数
+const DAYS_VISIBLE_IN_VIEWPORT = 7; // 画面に表示する日数（通常）
+const ROWS_VISIBLE_IN_VIEWPORT = 4; // 1画面に表示する作業班の行数（通常）
+const EMBEDDED_ROWS_VISIBLE = 3; // ダッシュボードのモーダル内で表示する行数
 const ROW_HEIGHT_PX = 110; // 1行の高さ（px）
 const TABLE_HEADER_HEIGHT_PX = 48;
 const TABLE_FOOTER_HEIGHT_PX = 44;
 /** 工程表スクロール領域の高さ（ヘッダー + 4行 + フッター） */
 const SCHEDULE_SCROLL_HEIGHT_PX =
   TABLE_HEADER_HEIGHT_PX + ROWS_VISIBLE_IN_VIEWPORT * ROW_HEIGHT_PX + TABLE_FOOTER_HEIGHT_PX;
+/** 工程表スクロール領域の高さ（埋め込み表示用: ヘッダー + 3行 + フッター） */
+const EMBEDDED_SCHEDULE_SCROLL_HEIGHT_PX =
+  TABLE_HEADER_HEIGHT_PX + EMBEDDED_ROWS_VISIBLE * ROW_HEIGHT_PX + TABLE_FOOTER_HEIGHT_PX;
 
 // 仮のユーザー権限（本番ではログイン情報から取得する想定）
 const CURRENT_USER_ROLE: "admin" | "viewer" = "admin";
@@ -94,7 +126,7 @@ interface SelectionState {
   date: string;
 }
 
-export default function SchedulePage() {
+function SchedulePageInner({ embedded }: { embedded: boolean }) {
   const [baseDate] = useState(new Date());
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [selection, setSelection] = useState<SelectionState | null>(null);
@@ -113,9 +145,7 @@ export default function SchedulePage() {
   const [rangeStartDate, setRangeStartDate] = useState<string>(""); // 期間まとめて配置用の開始日
   const [rangeEndDate, setRangeEndDate] = useState<string>(""); // 期間まとめて配置用の終了日
   const [holidayWeekdays, setHolidayWeekdays] = useState<number[]>([]);
-  const [selectionHolidayWeekdays, setSelectionHolidayWeekdays] = useState<
-    number[]
-  >([]);
+  const [selectionHolidayWeekdays, setSelectionHolidayWeekdays] = useState<number[]>([]);
   const [dayStatuses, setDayStatuses] = useState<DaySiteStatus[]>([]);
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false);
   const [modalWorkLineId, setModalWorkLineId] = useState<string>("");
@@ -123,9 +153,26 @@ export default function SchedulePage() {
   const [modalRangeEnd, setModalRangeEnd] = useState<string>("");
   const [modalMemberIds, setModalMemberIds] = useState<string[]>([]);
   const [modalHolidayWeekdays, setModalHolidayWeekdays] = useState<number[]>([]);
+  const [selectionMemberSearch, setSelectionMemberSearch] = useState("");
+  const [bulkMemberSearch, setBulkMemberSearch] = useState("");
   const [workLines, setWorkLines] = useState<WorkLine[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [customerMembers, setCustomerMembers] = useState<CustomerMember[]>([]);
+  const [projectPhasesMap, setProjectPhasesMap] = useState<Map<string, { startDate: string; endDate: string; siteStatus: string }[]>>(new Map());
+  const [workLineOrder, setWorkLineOrder] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const s = localStorage.getItem(WORK_LINE_ORDER_KEY);
+      if (!s) return [];
+      const parsed = JSON.parse(s) as unknown;
+      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+    } catch {
+      return [];
+    }
+  });
+  const [draggedWorkLineId, setDraggedWorkLineId] = useState<string | null>(null);
+  const [dragOverWorkLineId, setDragOverWorkLineId] = useState<string | null>(null);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -180,6 +227,7 @@ export default function SchedulePage() {
       setSelection(null);
       setSelectionModalClosing(false);
       setSelectionModalAnimatingIn(false);
+      setSelectionMemberSearch("");
     }, 220);
     return () => clearTimeout(t);
   }, [selectionModalClosing]);
@@ -199,31 +247,63 @@ export default function SchedulePage() {
       setShowBulkAssignModal(false);
       setBulkAssignModalClosing(false);
       setBulkAssignModalAnimatingIn(false);
+      setBulkMemberSearch("");
     }, 220);
     return () => clearTimeout(t);
   }, [bulkAssignModalClosing]);
 
-  // Load work lines, projects, and members from database
+  // Load work lines, projects, members, and customer members (BP) from database
+  const loadData = async (options?: { silent?: boolean }) => {
+    const silent = options?.silent ?? false;
+    try {
+      if (!silent) setIsLoadingData(true);
+      const [lines, projs, membersData] = await Promise.all([
+        getWorkLines(),
+        getProjects(),
+        getMembers()
+      ]);
+      // 同一案件・同一作業班名の重複を解消（project_id + name でユニークに）
+      const seen = new Set<string>();
+      const dedupedLines = lines.filter((line) => {
+        const key = `${line.projectId || "__none__"}-${line.name}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      setWorkLines(dedupedLines);
+      setProjects(projs);
+      setMembers(membersData);
+      const customerIds = [...new Set(projs.map((p) => p.customerId).filter((id): id is string => !!id))];
+      const bpMembers = customerIds.length > 0 ? await getCustomerMembersByCustomerIds(customerIds) : [];
+      setCustomerMembers(bpMembers);
+      const phasesMap = await getProjectPhasesMap(projs.map((p) => p.id));
+      setProjectPhasesMap(phasesMap);
+    } catch (error) {
+      console.error("Failed to load data:", error);
+      if (!silent) toast.error("データの読み込みに失敗しました。");
+    } finally {
+      if (!silent) setIsLoadingData(false);
+    }
+  };
+
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsLoadingData(true);
-        const [lines, projs, membersData] = await Promise.all([
-          getWorkLines(),
-          getProjects(),
-          getMembers()
-        ]);
-        setWorkLines(lines);
-        setProjects(projs);
-        setMembers(membersData);
-      } catch (error) {
-        console.error("Failed to load data:", error);
-        toast.error("データの読み込みに失敗しました。");
-      } finally {
-        setIsLoadingData(false);
+    loadData();
+  }, []);
+
+  // 案件管理で休日などを変更した後、タブに戻った際に案件・工程情報を再取得して同期（バックグラウンド更新）
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        loadData({ silent: true });
       }
     };
-    loadData();
+    const handleFocus = () => loadData({ silent: true });
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+    };
   }, []);
 
   // Load assignments when week changes or on initial load
@@ -255,11 +335,108 @@ export default function SchedulePage() {
     }
   }, [currentWeekStart, isLoadingData, workLines.length]);
 
+  // 作業班名で統合（同一名は1行に集約）
+  interface MergedWorkLine {
+    id: string;
+    name: string;
+    color?: string;
+    workLineIds: string[];
+  }
+  const mergedWorkLinesRaw = useMemo((): MergedWorkLine[] => {
+    const byName = new Map<string, { name: string; color?: string; ids: string[] }>();
+    for (const wl of workLines) {
+      const cur = byName.get(wl.name);
+      if (!cur) {
+        byName.set(wl.name, { name: wl.name, color: wl.color, ids: [wl.id] });
+      } else {
+        cur.ids.push(wl.id);
+      }
+    }
+    return Array.from(byName.entries()).map(([name, v]) => ({
+      id: name,
+      name,
+      color: v.color,
+      workLineIds: v.ids
+    }));
+  }, [workLines]);
+
+  const mergedWorkLines = useMemo(() => {
+    if (workLineOrder.length === 0) return mergedWorkLinesRaw;
+    const orderMap = new Map(workLineOrder.map((id, i) => [id, i]));
+    return [...mergedWorkLinesRaw].sort((a, b) => {
+      const ia = orderMap.get(a.id) ?? 9999;
+      const ib = orderMap.get(b.id) ?? 9999;
+      if (ia !== ib) return ia - ib;
+      return a.name.localeCompare(b.name);
+    });
+  }, [mergedWorkLinesRaw, workLineOrder]);
+
+  const moveWorkLineOrder = (draggedId: string, targetId: string) => {
+    const currentOrder = mergedWorkLines.map((l) => l.id);
+    const dragIdx = currentOrder.indexOf(draggedId);
+    const targetIdx = currentOrder.indexOf(targetId);
+    if (dragIdx === -1 || targetIdx === -1 || dragIdx === targetIdx) return;
+    const next = [...currentOrder];
+    next.splice(dragIdx, 1);
+    next.splice(targetIdx, 0, draggedId);
+    setWorkLineOrder(next);
+    try {
+      localStorage.setItem(WORK_LINE_ORDER_KEY, JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+  };
+
   // 表示するワークグループをフィルタリング
   const displayedLines = useMemo(() => {
-    if (!filteredWorkLineId) return workLines;
-    return workLines.filter((line) => line.id === filteredWorkLineId);
-  }, [filteredWorkLineId, workLines]);
+    if (!filteredWorkLineId) return mergedWorkLines;
+    return mergedWorkLines.filter((line) => line.id === filteredWorkLineId);
+  }, [filteredWorkLineId, mergedWorkLines]);
+
+  // 統合行・日付に対する有効な work_line_id（その日の案件に紐づくものを優先）
+  const getActiveWorkLineId = (merged: MergedWorkLine, date: string): string => {
+    for (const wlId of merged.workLineIds) {
+      const wl = workLines.find((w) => w.id === wlId);
+      if (!wl?.projectId) continue;
+      const project = projects.find((p) => p.id === wl.projectId);
+      if (!project) continue;
+      if (date >= project.startDate && date <= project.endDate) return wlId;
+    }
+    return merged.workLineIds[0] ?? "";
+  };
+
+  // 統合行・日付に対する案件
+  const getProjectForMergedCell = (merged: MergedWorkLine, date: string): Project | null => {
+    const wlId = getActiveWorkLineId(merged, date);
+    return getProjectForWorkLine(wlId, date);
+  };
+
+  // 案件に紐づく取引先（ビジネスパートナー）メンバーを取得
+  const getBPMembersForProject = (project: Project | null): CustomerMember[] => {
+    if (!project?.customerId) return [];
+    return customerMembers.filter((m) => m.customerId === project.customerId);
+  };
+
+  // 統合セルの割り当て（複数 work_line を集約）
+  const getCellAssignmentsForMerged = (merged: MergedWorkLine, iso: string) =>
+    assignments.filter(
+      (a) => merged.workLineIds.includes(a.workLineId) && a.date === iso && !a.isHoliday
+    );
+
+  // 統合セルのロック状態（いずれかがロックならロック）
+  const isCellLockedForMerged = (merged: MergedWorkLine, iso: string) =>
+    merged.workLineIds.some((id) => isCellLocked(id, iso));
+
+  // セルの日付に対する工程ステータス（組立・解体など）を取得
+  const getPhaseStatusForCell = (workLineId: string, date: string): string | null => {
+    const project = getProjectForWorkLine(workLineId, date);
+    if (!project) return null;
+    const phases = projectPhasesMap.get(project.id);
+    if (phases && phases.length > 0) {
+      return getPhaseStatusForDate(phases, date);
+    }
+    return project.siteStatus ?? null;
+  };
 
   // ワークグループに関連する案件を取得する関数
   const getProjectForWorkLine = (workLineId: string, date: string): Project | null => {
@@ -353,16 +530,29 @@ export default function SchedulePage() {
   };
 
 
-  // 常に7日分（1週間）を表示
+  // 表示する日付の配列
+  // - 通常: 7日分（1週間）
+  // - embedded（ダッシュボードのモーダル）: 当日のみ
   const days = useMemo(() => {
+    if (embedded) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return [
+        {
+          date: today,
+          iso: format(today, "yyyy-MM-dd"),
+        },
+      ];
+    }
+
     return Array.from({ length: DAYS_VISIBLE_IN_VIEWPORT }, (_, i) => {
       const d = addDays(currentWeekStart, i);
       return {
         date: d,
-        iso: format(d, "yyyy-MM-dd")
+        iso: format(d, "yyyy-MM-dd"),
       };
     });
-  }, [currentWeekStart]);
+  }, [currentWeekStart, embedded]);
 
   /** 日付が今日より前（過去）なら true（過去日は自動ロック対象） */
   const isPastDate = (iso: string) => iso < format(new Date(), "yyyy-MM-dd");
@@ -411,20 +601,40 @@ export default function SchedulePage() {
     });
   };
 
-  const openSelection = (workLineId: string, iso: string) => {
+  const openSelection = async (workLineId: string, iso: string) => {
     if (isCellLocked(workLineId, iso)) return;
     if (!isAdmin) {
       toast.error('この操作は管理者のみ実行できます。閲覧者権限では編集操作はできません。');
       return;
+    }
+    // 案件の標準週休日に該当するセルの場合は、割り当てをブロックして通知
+    const project = getProjectForWorkLine(workLineId, iso);
+    if (project?.defaultHolidayWeekdays && project.defaultHolidayWeekdays.length > 0) {
+      const weekday = new Date(iso).getDay();
+      if (project.defaultHolidayWeekdays.includes(weekday)) {
+        toast.error('この日はこの案件の週休日として設定されています。休日には人員を配置できません。');
+        return;
+      }
     }
     setSelectionModalClosing(false);
     setSelection({ workLineId, date: iso });
     const current = assignments.filter(
       (a) => a.workLineId === workLineId && a.date === iso && !a.isHoliday
     );
-    setSelectedMemberIds(current.map((c) => c.memberId));
-    // Reset selection holiday weekdays when opening modal
-    setSelectionHolidayWeekdays([]);
+    if (current.length > 0) {
+      setSelectedMemberIds(current.map((c) => c.memberId));
+    } else if (project?.id) {
+      try {
+        const defaultIds = await getProjectDefaultMemberIds(project.id);
+        setSelectedMemberIds(defaultIds);
+      } catch {
+        setSelectedMemberIds([]);
+      }
+    } else {
+      setSelectedMemberIds([]);
+    }
+    // 対象案件の標準週休日を初期選択として反映
+    setSelectionHolidayWeekdays(project?.defaultHolidayWeekdays ?? []);
   };
 
   const toggleMember = (memberId: string) => {
@@ -496,7 +706,7 @@ export default function SchedulePage() {
   };
 
   const handleBulkAssign = async (
-    workLineId?: string,
+    workLineIdOrMergedId?: string,
     startDate?: string,
     endDate?: string,
     memberIds?: string[],
@@ -506,7 +716,7 @@ export default function SchedulePage() {
       toast.error('この操作は管理者のみ実行できます。閲覧者権限では編集操作はできません。');
       return;
     }
-    const finalWorkLineId = workLineId ?? selectedWorkLineId;
+    const finalId = workLineIdOrMergedId ?? selectedWorkLineId;
     const finalStartDate = startDate ?? modalRangeStart;
     const finalEndDate = endDate ?? modalRangeEnd;
     const finalMemberIds = memberIds ?? selectedMemberIds;
@@ -516,11 +726,10 @@ export default function SchedulePage() {
       !finalStartDate ||
       !finalEndDate ||
       finalMemberIds.length === 0 ||
-      !finalWorkLineId
+      !finalId
     )
       return;
     
-    // Validate member IDs exist in database
     const invalidMemberIds = finalMemberIds.filter(
       (memberId) => !members.some((m) => m.id === memberId)
     );
@@ -529,38 +738,53 @@ export default function SchedulePage() {
       return;
     }
     
+    const merged = mergedWorkLines.find((m) => m.id === finalId);
+    
     try {
-      // Delete existing assignments for the date range
       const start = new Date(finalStartDate);
       const end = new Date(finalEndDate);
-      const days = [];
+      const days: string[] = [];
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         days.push(format(d, "yyyy-MM-dd"));
       }
       
-      // Delete assignments for each day in the range
       for (const day of days) {
-        await deleteAssignments(finalWorkLineId, day);
+        const idsToDelete = merged ? merged.workLineIds : [finalId];
+        for (const wlId of idsToDelete) {
+          await deleteAssignments(wlId, day);
+        }
       }
       
-      // Create new assignments
-      const assignmentsToCreate = createAssignmentsForRange({
-        workLineId: finalWorkLineId,
-        memberIds: finalMemberIds,
-        startDate: finalStartDate,
-        endDate: finalEndDate,
-        holidayWeekdays: finalHolidayWeekdays
-      });
+      const byWorkLine = new Map<string, string[]>();
+      for (const day of days) {
+        const wlId = merged ? getActiveWorkLineId(merged, day) : finalId;
+        const arr = byWorkLine.get(wlId) ?? [];
+        arr.push(day);
+        byWorkLine.set(wlId, arr);
+      }
       
-      const created = await createAssignments(assignmentsToCreate);
+      const allCreated: Assignment[] = [];
+      for (const [wlId, wlDays] of byWorkLine) {
+        if (wlDays.length === 0) continue;
+        const wlStart = wlDays[0]!;
+        const wlEnd = wlDays[wlDays.length - 1]!;
+        const toCreate = createAssignmentsForRange({
+          workLineId: wlId,
+          memberIds: finalMemberIds,
+          startDate: wlStart,
+          endDate: wlEnd,
+          holidayWeekdays: finalHolidayWeekdays
+        });
+        const created = await createAssignments(toCreate);
+        allCreated.push(...created);
+      }
       
-      // Update local state
       setAssignments((prev) => {
-        const keys = new Set(created.map((c) => `${c.workLineId}-${c.date}`));
+        const keys = new Set(allCreated.map((c) => `${c.workLineId}-${c.date}`));
         const filtered = prev.filter(
           (a) => !keys.has(`${a.workLineId}-${a.date}`)
         );
-        return [...filtered, ...created];
+        return [...filtered, ...allCreated];
       });
       
       toast.success("期間のメンバー割り当てを保存しました。");
@@ -571,7 +795,7 @@ export default function SchedulePage() {
     }
   };
 
-  const openBulkAssignModal = () => {
+  const openBulkAssignModal = async () => {
     setBulkAssignModalClosing(false);
     setShowBulkAssignModal(true);
     // モーダルを開くときに現在の値を初期値として設定
@@ -581,8 +805,24 @@ export default function SchedulePage() {
     const weekEnd = rangeEndDate || format(addDays(currentWeekStart, 6), "yyyy-MM-dd");
     setModalRangeStart(weekStart);
     setModalRangeEnd(weekEnd);
-    setModalMemberIds([...selectedMemberIds]);
     setModalHolidayWeekdays([...holidayWeekdays]);
+    // 選択された作業班の案件の既定メンバーを初期選択として設定
+    let initialMemberIds = selectedMemberIds;
+    const merged = mergedWorkLines.find((m) => m.id === selectedWorkLineId);
+    const wl = merged
+      ? workLines.find((l) => merged.workLineIds.includes(l.id))
+      : workLines.find((l) => l.id === selectedWorkLineId);
+    if (wl?.projectId) {
+      try {
+        const defaultIds = await getProjectDefaultMemberIds(wl.projectId);
+        if (defaultIds.length > 0) {
+          initialMemberIds = defaultIds;
+        }
+      } catch {
+        // 既定メンバー取得失敗時は selectedMemberIds のまま
+      }
+    }
+    setModalMemberIds([...initialMemberIds]);
   };
 
   const closeBulkAssignModal = () => setBulkAssignModalClosing(true);
@@ -642,7 +882,7 @@ export default function SchedulePage() {
   const dailyWorkload = useMemo(() => {
     return days.map((d) => {
       const total = displayedLines.reduce(
-        (sum, line) => sum + getCellAssignments(line.id, d.iso).length,
+        (sum, line) => sum + getCellAssignmentsForMerged(line, d.iso).length,
         0
       );
       return { iso: d.iso, count: total };
@@ -651,15 +891,17 @@ export default function SchedulePage() {
 
   return (
     <AuthGuard>
-    <div className="h-screen flex flex-col">
-      <header className="px-6 py-3 border-b border-theme-border flex items-center justify-between">
-        <div className="flex items-baseline gap-4">
-          <h1 className="text-lg font-semibold text-theme-text">工程・人員配置</h1>
-        </div>
-      </header>
+    <div className={embedded ? "flex flex-col" : "h-screen flex flex-col"}>
+      {!embedded && (
+        <header className="px-6 py-3 border-b border-theme-border flex items-center justify-between">
+          <div className="flex items-baseline gap-4">
+            <h1 className="text-lg font-semibold text-theme-text">工程・人員配置</h1>
+          </div>
+        </header>
+      )}
       <div className="flex-1 overflow-auto grid grid-rows-[auto_minmax(0,1fr)] gap-2 p-3">
-        {/* ビューア用のフィルタリングカード */}
-        {!isAdmin && (
+        {/* ビューア用のフィルタリングカード（埋め込み表示時は非表示） */}
+        {!embedded && !isAdmin && (
           <Card title="工程表フィルター" className="text-xs">
             <div className="flex flex-wrap items-end gap-4">
               <div>
@@ -673,7 +915,7 @@ export default function SchedulePage() {
                   }}
                 >
                   <option value="">すべて表示</option>
-                  {workLines.map((line) => (
+                  {mergedWorkLines.map((line) => (
                     <option key={line.id} value={line.id}>
                       {line.name}
                     </option>
@@ -727,8 +969,8 @@ export default function SchedulePage() {
             </div>
           </Card>
         )}
-        {/* 管理者用の期間まとめて配置カード（スマホではクリックで開閉） */}
-        {isAdmin && (
+        {/* 管理者用の期間まとめて配置カード（スマホではクリックで開閉） - 埋め込み表示時は非表示 */}
+        {isAdmin && !embedded && (
         isMobile ? (
           <section className="rounded-xl bg-theme-card border border-theme-border text-theme-text shadow-sm text-xs overflow-hidden">
             <button
@@ -766,8 +1008,8 @@ export default function SchedulePage() {
                           setFilteredWorkLineId(value);
                         }}
                       >
-                        <option value="">すべて表示</option>
-                        {workLines.map((line) => (
+                        <option value="">選択してください</option>
+                        {mergedWorkLines.map((line) => (
                           <option key={line.id} value={line.id}>
                             {line.name}
                           </option>
@@ -842,8 +1084,8 @@ export default function SchedulePage() {
                   setFilteredWorkLineId(value); // テーブル表示も同時に更新
                 }}
               >
-                <option value="">すべて表示</option>
-                {workLines.map((line) => (
+                <option value="">選択してください</option>
+                {mergedWorkLines.map((line) => (
                   <option key={line.id} value={line.id}>
                     {line.name}
                   </option>
@@ -909,7 +1151,7 @@ export default function SchedulePage() {
         )}
         <Card title="工程表" className="text-xs overflow-hidden">
           <div className="flex flex-wrap items-center gap-2 mb-2">
-            {isAdmin && (
+            {isAdmin && !embedded && (
               <label className="inline-flex items-center gap-1.5 cursor-pointer select-none">
                 <input
                   type="checkbox"
@@ -922,43 +1164,48 @@ export default function SchedulePage() {
                 </span>
               </label>
             )}
-            <button
-              type="button"
-              onClick={goToPrevWeek}
-              disabled={isAnimating}
-              className="px-3 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-            >
-              ← 前の週
-            </button>
-            <button
-              type="button"
-              onClick={goToToday}
-              disabled={isAnimating}
-              className="px-3 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-            >
-              今週に戻る
-            </button>
-            <button
-              type="button"
-              onClick={goToNextWeek}
-              disabled={isAnimating}
-              className="px-3 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-            >
-              次の週 →
-            </button>
-            <span className="text-xs text-theme-text-muted ml-auto">
-              {days.length > 0 && (
-                <>
-                  {format(days[0].date, "yyyy年MM月dd日", { locale: ja })} 〜 {format(days[days.length - 1].date, "yyyy年MM月dd日", { locale: ja })}
-                </>
-              )}
-            </span>
+            {!embedded && (
+              <>
+                <button
+                  type="button"
+                  onClick={goToPrevWeek}
+                  disabled={isAnimating}
+                  className="px-3 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+                >
+                  ← 前の週
+                </button>
+                <button
+                  type="button"
+                  onClick={goToToday}
+                  disabled={isAnimating}
+                  className="px-3 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+                >
+                  今週に戻る
+                </button>
+                <button
+                  type="button"
+                  onClick={goToNextWeek}
+                  disabled={isAnimating}
+                  className="px-3 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+                >
+                  次の週 →
+                </button>
+                <span className="text-xs text-theme-text-muted ml-auto">
+                  {days.length > 0 && (
+                    <>
+                      {format(days[0].date, "yyyy年MM月dd日", { locale: ja })} 〜{" "}
+                      {format(days[days.length - 1].date, "yyyy年MM月dd日", { locale: ja })}
+                    </>
+                  )}
+                </span>
+              </>
+            )}
           </div>
           <div 
             className="overflow-y-auto overflow-x-auto"
             style={{ 
               width: '100%',
-              height: SCHEDULE_SCROLL_HEIGHT_PX
+              height: embedded ? EMBEDDED_SCHEDULE_SCROLL_HEIGHT_PX : SCHEDULE_SCROLL_HEIGHT_PX
             }}
           >
             <table className="border-collapse text-[11px] w-full" style={{ tableLayout: 'fixed', minHeight: '280px' }} cellPadding="0" cellSpacing="0">
@@ -1009,14 +1256,39 @@ export default function SchedulePage() {
                 ) : (
                   displayedLines.map((line) => {
                   const isSelected = filteredWorkLineId === line.id;
+                  const isDragging = draggedWorkLineId === line.id;
+                  const isDragOver = dragOverWorkLineId === line.id;
                   return (
                     <tr
                       key={line.id}
-                      className={isSelected ? "bg-theme-bg-elevated/30" : ""}
+                      draggable
+                      onDragStart={(e) => {
+                        setDraggedWorkLineId(line.id);
+                        e.dataTransfer.effectAllowed = "move";
+                        e.dataTransfer.setData("text/plain", line.id);
+                        e.dataTransfer.setDragImage(e.currentTarget, 0, 0);
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        if (draggedWorkLineId && draggedWorkLineId !== line.id) setDragOverWorkLineId(line.id);
+                      }}
+                      onDragLeave={() => setDragOverWorkLineId(null)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setDragOverWorkLineId(null);
+                        const id = e.dataTransfer.getData("text/plain");
+                        if (id && id !== line.id) moveWorkLineOrder(id, line.id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedWorkLineId(null);
+                        setDragOverWorkLineId(null);
+                      }}
+                      className={`${isSelected ? "bg-theme-bg-elevated/30" : ""} ${isDragging ? "opacity-50" : ""} ${isDragOver ? "ring-2 ring-inset ring-accent" : ""}`}
                       style={{ minHeight: '110px' }}
                     >
                       <td
-                        className={`sticky left-0 z-10 border-t border-r border-theme-border px-2 py-2 text-left align-top overflow-hidden ${
+                        className={`sticky left-0 z-10 border-t border-r border-theme-border px-2 py-2 text-left align-top overflow-hidden cursor-grab active:cursor-grabbing ${
                           isSelected ? "bg-theme-bg-elevated/50" : "bg-theme-bg-input/60"
                         }`}
                         style={{
@@ -1026,12 +1298,12 @@ export default function SchedulePage() {
                           minWidth: isMobile ? "50px" : "100px",
                           minHeight: "110px",
                         }}
-                        title={line.name}
+                        title={`${line.name}（ドラッグで並び替え）`}
                       >
                         <div className="flex flex-col md:flex-row md:items-center items-start gap-1.5 min-w-0">
                           <span
                             className="inline-block w-2 h-6 md:h-8 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: line.color }}
+                            style={{ backgroundColor: line.color ?? "#6b7280" }}
                           />
                           <span
                             className={`text-[11px] md:text-xs truncate text-theme-text ${
@@ -1040,13 +1312,19 @@ export default function SchedulePage() {
                           >
                             {isMobile ? getWorkLineShortName(line.name) : line.name}
                           </span>
+                          <span className="ml-0.5 text-theme-text-muted shrink-0" aria-hidden>⋮⋮</span>
                         </div>
                       </td>
                     {days.map((d) => {
                       const iso = d.iso;
-                      const cellAssignments = getCellAssignments(line.id, iso);
-                      const locked = isCellLocked(line.id, iso);
-                      const project = getProjectForWorkLine(line.id, iso);
+                      const activeWlId = getActiveWorkLineId(line, iso);
+                      const cellAssignments = getCellAssignmentsForMerged(line, iso);
+                      const locked = isCellLockedForMerged(line, iso);
+                      const project = getProjectForMergedCell(line, iso);
+                      const weekday = new Date(iso).getDay();
+                      const isWeeklyHoliday =
+                        project?.defaultHolidayWeekdays?.includes(weekday) ?? false;
+                      const phaseStatus = getPhaseStatusForCell(activeWlId, iso);
                       // 案件とメンバーが割り当てられているかチェック
                       const hasProjectAndMembers = project !== null && cellAssignments.length > 0;
                       return (
@@ -1061,85 +1339,115 @@ export default function SchedulePage() {
                           }`}
                           style={{ maxWidth: 0, verticalAlign: 'top', padding: 0, lineHeight: 'normal' }}
                         >
-                          <div className="w-full px-1.5 py-1.5 flex flex-col gap-1" style={{ minHeight: '110px', boxSizing: 'border-box' }}>
-                            {/* 案件名表示 */}
+                          <div className="w-full h-full px-1.5 py-1.5 flex flex-col gap-1" style={{ minHeight: '110px', boxSizing: 'border-box' }}>
+                            {/* 案件名・工程（現場の状態に応じて色分け） */}
                             {project ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setProjectModalClosing(false);
-                                    setSelectedProject(project);
-                                    setShowProjectModal(true);
-                                  }}
-                                  className="text-[11px] text-accent font-semibold truncate bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded px-2 py-0.5 text-left w-full transition-colors flex-shrink-0"
-                                  title={`${project.siteName} - クリックで詳細を表示`}
-                                  style={{ height: '24px', minHeight: '24px', maxHeight: '24px' }}
-                                >
-                                  📋 {project.siteName}
-                                </button>
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setProjectModalClosing(false);
+                                      setSelectedProject(project);
+                                      setShowProjectModal(true);
+                                    }}
+                                    className={`text-[11px] font-semibold truncate rounded px-2 py-0.5 text-left flex-1 min-w-0 transition-colors hover:opacity-90 ${
+                                      phaseStatus
+                                        ? `${getPhaseStatusStyle(phaseStatus).bg} ${getPhaseStatusStyle(phaseStatus).border} ${getPhaseStatusStyle(phaseStatus).text} border`
+                                        : "bg-accent/10 hover:bg-accent/20 border border-accent/30 text-accent"
+                                    }`}
+                                    title={`${project.siteName}${phaseStatus ? ` - ${phaseStatus}` : ""} - クリックで詳細を表示`}
+                                    style={{ height: '24px', minHeight: '24px', maxHeight: '24px' }}
+                                  >
+                                    📋 {project.siteName}
+                                  </button>
+                                </div>
                               ) : null}
+                            {/* 取引先（ビジネスパートナー）メンバー表示（円＋名前） */}
+                            {project && getBPMembersForProject(project).length > 0 ? (
+                              <div className="flex flex-wrap gap-1 min-w-0 items-center flex-shrink-0">
+                                {getBPMembersForProject(project).map((m) => {
+                                  const bpColor = m.color || MEMBER_COLORS[0];
+                                  return (
+                                    <span
+                                      key={m.id}
+                                      title={m.name}
+                                      className="inline-flex flex-col items-center gap-0.5 flex-shrink-0 min-w-0"
+                                    >
+                                      <span
+                                        className="inline-flex items-center justify-center w-6 h-6 rounded-full border-2 text-theme-text text-[10px] flex-shrink-0"
+                                        style={{
+                                          borderColor: bpColor,
+                                          backgroundColor: `${bpColor}20`
+                                        }}
+                                      >
+                                        {getMemberShortName(m.name)}
+                                      </span>
+                                      <span className="text-[9px] text-theme-text-muted truncate max-w-[4.5em] leading-tight" style={{ maxWidth: "4.5em" }}>
+                                        {getMemberNameLabel(m.name, 4)}
+                                      </span>
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
                           <button
                             type="button"
                               onClick={() => {
                                 if (locked) return;
-                                openSelection(line.id, iso);
+                                openSelection(activeWlId, iso);
                               }}
                               disabled={locked}
-                              className={`w-full px-1.5 py-0.5 text-left rounded min-w-0 overflow-hidden ${
+                              className={`w-full h-full min-h-[40px] px-1.5 py-0.5 rounded min-w-0 overflow-hidden flex flex-col ${
                                 locked
                                   ? "bg-theme-bg-input/40 text-theme-text-muted cursor-not-allowed"
                                   : "hover:bg-theme-bg-elevated/60"
                               }`}
-                              style={{ minHeight: '40px', flexShrink: 0 }}
+                              style={{ flexShrink: 0 }}
                           >
-                              <div className="flex flex-wrap gap-1 min-w-0 items-center">
-                                {(() => {
-                                  // 列の幅に応じて表示できる人数を計算（各バッジは約28px、gapは4px）
-                                  // 画面幅に応じて表示人数を調整（スマートフォンではより少なく表示）
-                                  const maxVisible = isMobile ? 2 : 5;
-                                  const showAll = cellAssignments.length >= 10;
-                                  const visibleAssignments = showAll
-                                    ? cellAssignments
-                                    : cellAssignments.slice(0, maxVisible);
-                                  const remainingCount = showAll
-                                    ? 0
-                                    : cellAssignments.length - maxVisible;
-                                  
-                                  return (
-                                    <>
-                                      {visibleAssignments.map((a) => {
-                                const member =
-                                          members.find(
-                                          (m) => m.id === a.memberId
-                                          ) ?? members[0];
-                                const memberColor = getMemberColor(a.memberId, members);
-                                return (
-                                  <span
-                                    key={a.id}
-                                    title={member.name}
-                                    className="inline-flex items-center justify-center w-6 h-6 rounded-full border-2 text-theme-text text-[10px] flex-shrink-0"
-                                    style={{
-                                      borderColor: memberColor,
-                                      backgroundColor: `${memberColor}20`
-                                    }}
+                              <div className="flex flex-wrap gap-1 min-w-0 items-center justify-center content-center flex-1">
+                                {isWeeklyHoliday ? (
+                                  <div
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-rose-500/60 bg-rose-500/15 text-[11px] font-medium text-rose-200"
+                                    title="この案件では週休日として設定されています"
                                   >
-                                    {getMemberShortName(member.name)}
-                                  </span>
-                                );
-                              })}
-                                      {remainingCount > 0 && (
-                                        <span 
-                                          className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full border border-theme-border bg-theme-bg-elevated text-[10px] text-theme-text-muted-strong flex-shrink-0"
-                                          title={`他${remainingCount}名`}
-                                        >
-                                          +{remainingCount}
-                                </span>
-                              )}
-                                    </>
-                                  );
-                                })()}
-                            </div>
+                                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-500/80 text-[10px] font-bold text-white">
+                                      休
+                                    </span>
+                                    <span>休日</span>
+                                  </div>
+                                ) : (
+                                  <>
+                                        {cellAssignments.map((a) => {
+                                          const member =
+                                            members.find(
+                                              (m) => m.id === a.memberId
+                                            ) ?? members[0];
+                                          const memberColor = getMemberColor(a.memberId, members);
+                                          return (
+                                            <span
+                                              key={a.id}
+                                              title={member.name}
+                                              className="inline-flex flex-col items-center justify-center gap-0.5 flex-shrink-0 min-w-0 text-center"
+                                            >
+                                              <span
+                                                className="inline-flex items-center justify-center w-6 h-6 rounded-full border-2 text-theme-text text-[10px] flex-shrink-0"
+                                                style={{
+                                                  borderColor: memberColor,
+                                                  backgroundColor: `${memberColor}20`
+                                                }}
+                                              >
+                                                {getMemberShortName(member.name)}
+                                              </span>
+                                              <span className="text-[9px] text-theme-text-muted truncate max-w-[4.5em] leading-tight" style={{ maxWidth: "4.5em" }}>
+                                                {getMemberNameLabel(member.name, 4)}
+                                              </span>
+                                            </span>
+                                          );
+                                        })}
+                                      </>
+                                )}
+                              </div>
                           </button>
                           
                             <div className="flex items-center justify-end text-[9px] text-theme-text-muted min-w-0 flex-shrink-0" style={{ height: '24px', minHeight: '24px', maxHeight: '24px', flexShrink: 0, marginTop: 'auto' }}>
@@ -1148,7 +1456,7 @@ export default function SchedulePage() {
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    if (!isPastDate(iso)) toggleLock(line.id, iso);
+                                    if (!isPastDate(iso)) toggleLock(activeWlId, iso);
                                   }}
                                   disabled={isPastDate(iso) && !monthEndVerifyMode}
                                   className={`w-6 h-6 rounded-full flex items-center justify-center text-xs transition-all flex-shrink-0 ${
@@ -1242,6 +1550,12 @@ export default function SchedulePage() {
                 <label className="text-xs text-theme-text-muted block mb-1">取引先会社名</label>
                 <div className="text-sm">{selectedProject.customerName}</div>
               </div>
+              {getBPMembersForProject(selectedProject).length > 0 && (
+                <div>
+                  <label className="text-xs text-theme-text-muted block mb-1">取引先メンバー（ビジネスパートナー）</label>
+                  <div className="text-sm">{getBPMembersForProject(selectedProject).map((m) => m.name).join(", ")}</div>
+                </div>
+              )}
               <div>
                 <label className="text-xs text-theme-text-muted block mb-1">契約形態</label>
                 <div className="text-sm">
@@ -1256,10 +1570,59 @@ export default function SchedulePage() {
                   <div className="text-sm">¥{selectedProject.contractAmount.toLocaleString()}</div>
                 </div>
               )}
+              {(() => {
+                const phases = projectPhasesMap.get(selectedProject.id);
+                if (phases && phases.length > 0) {
+                  return (
+                    <div>
+                      <label className="text-xs text-theme-text-muted block mb-1">工程（組立・解体など）</label>
+                      <div className="text-sm space-y-1">
+                        {phases.map((p, i) => {
+                          const style = getPhaseStatusStyle(p.siteStatus);
+                          return (
+                            <div key={i}>
+                              {format(new Date(p.startDate), "M/d", { locale: ja })}
+                              {p.startDate !== p.endDate && ` 〜 ${format(new Date(p.endDate), "M/d", { locale: ja })}`}
+                              {" "}
+                              <span className={`inline-flex px-2 py-0.5 rounded border ${style.bg} ${style.border} ${style.text}`}>{p.siteStatus}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                }
+                if (selectedProject.siteStatus) {
+                  return (
+                    <div>
+                      <label className="text-xs text-theme-text-muted block mb-1">現場ステータス</label>
+                      <div className="text-sm">{selectedProject.siteStatus}</div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+              {selectedProject.defaultHolidayWeekdays && selectedProject.defaultHolidayWeekdays.length > 0 && (
+                <div>
+                  <label className="text-xs text-theme-text-muted block mb-1">標準 週休日</label>
+                  <div className="text-sm">
+                    {selectedProject.defaultHolidayWeekdays
+                      .map((d) => ["日", "月", "火", "水", "木", "金", "土"][d] ?? "")
+                      .filter((v) => v !== "")
+                      .join("・")}
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="text-xs text-theme-text-muted block mb-1">現場住所</label>
                 <div className="text-sm">{selectedProject.siteAddress}</div>
               </div>
+              {selectedProject.memo && (
+                <div>
+                  <label className="text-xs text-theme-text-muted block mb-1">メモ</label>
+                  <div className="text-sm whitespace-pre-wrap break-words">{selectedProject.memo}</div>
+                </div>
+              )}
               <div>
                 <label className="text-xs text-theme-text-muted block mb-1">工期</label>
                 <div className="text-sm">
@@ -1301,7 +1664,7 @@ export default function SchedulePage() {
               <div>
                 <div className="text-sm font-semibold">人員選択</div>
                 <div className="text-[11px] text-theme-text-muted mt-0.5">
-                  {selection.date} /{" "}
+                  {selection.date}（{["日", "月", "火", "水", "木", "金", "土"][new Date(selection.date).getDay()]}） /{" "}
                   {workLines.find((l) => l.id === selection.workLineId)?.name}
                 </div>
               </div>
@@ -1313,13 +1676,44 @@ export default function SchedulePage() {
                 ×
               </button>
             </div>
+            {(() => {
+              const proj = getProjectForWorkLine(selection.workLineId, selection.date);
+              const holidayWeekdays = proj?.defaultHolidayWeekdays ?? [];
+              return holidayWeekdays.length > 0 ? (
+                <div className="mb-3 px-3 py-2 rounded-md bg-theme-bg-elevated border border-theme-border">
+                  <div className="text-[11px] text-theme-text-muted-strong mb-0.5">この案件の標準週休日</div>
+                  <div className="text-[11px] text-theme-text">
+                    {holidayWeekdays
+                      .map((d) => ["日", "月", "火", "水", "木", "金", "土"][d] ?? "")
+                      .filter((v) => v !== "")
+                      .join("・")}
+                    曜日
+                  </div>
+                </div>
+              ) : null;
+            })()}
             <div className="space-y-3">
               <div>
                 <div className="mb-1 text-[11px] text-theme-text-muted-strong">
                   登録済みメンバー（複数選択可）
                 </div>
+                {members.length > 5 && (
+                  <input
+                    type="search"
+                    placeholder="メンバー名で検索..."
+                    value={selectionMemberSearch}
+                    onChange={(e) => setSelectionMemberSearch(e.target.value)}
+                    className="w-full rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-2 py-1.5 text-[11px] mb-1.5 placeholder:text-theme-text-muted"
+                    aria-label="メンバーを検索"
+                  />
+                )}
                 <div className="flex flex-wrap gap-1">
-                  {members.map((m) => (
+                  {(selectionMemberSearch.trim()
+                    ? members.filter((m) =>
+                        m.name.toLowerCase().includes(selectionMemberSearch.trim().toLowerCase())
+                      )
+                    : members
+                  ).map((m) => (
                     <button
                       key={m.id}
                       type="button"
@@ -1390,7 +1784,7 @@ export default function SchedulePage() {
         </div>
       )}
 
-      {showBulkAssignModal && (
+      {!embedded && showBulkAssignModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <button
             type="button"
@@ -1428,10 +1822,33 @@ export default function SchedulePage() {
                 <select
                   className="w-full rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-1 py-1 text-[11px]"
                   value={modalWorkLineId}
-                  onChange={(e) => setModalWorkLineId(e.target.value)}
+                  onChange={async (e) => {
+                    const value = e.target.value;
+                    setModalWorkLineId(value);
+                    const merged = mergedWorkLines.find((m) => m.id === value);
+                    const wl = merged
+                      ? workLines.find((l) => merged.workLineIds.includes(l.id))
+                      : workLines.find((line) => line.id === value);
+                    if (wl) {
+                      const proj = projects.find((p) => p.id === wl.projectId);
+                      if (proj) {
+                        if (proj.defaultHolidayWeekdays && proj.defaultHolidayWeekdays.length > 0) {
+                          setModalHolidayWeekdays(proj.defaultHolidayWeekdays);
+                        }
+                        try {
+                          const defaultIds = await getProjectDefaultMemberIds(proj.id);
+                          if (defaultIds.length > 0) {
+                            setModalMemberIds(defaultIds);
+                          }
+                        } catch {
+                          // 既定メンバー取得失敗時はそのまま
+                        }
+                      }
+                    }
+                  }}
                 >
                   <option value="">選択してください</option>
-                  {workLines.map((line) => (
+                  {mergedWorkLines.map((line) => (
                     <option key={line.id} value={line.id}>
                       {line.name}
                     </option>
@@ -1458,6 +1875,16 @@ export default function SchedulePage() {
               </div>
               <div>
                 <label className="block mb-1 text-[11px] text-theme-text-muted-strong">対象メンバー（複数選択可）</label>
+                {members.length > 5 && (
+                  <input
+                    type="search"
+                    placeholder="メンバー名で検索..."
+                    value={bulkMemberSearch}
+                    onChange={(e) => setBulkMemberSearch(e.target.value)}
+                    className="w-full rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-2 py-1.5 text-[11px] mb-1.5 placeholder:text-theme-text-muted"
+                    aria-label="メンバーを検索"
+                  />
+                )}
                 {isMobile ? (
                   <>
                     {/* サマリー表示（2〜3名 + 残りは +数字） */}
@@ -1513,7 +1940,12 @@ export default function SchedulePage() {
                     {/* 折りたたみ可能な全メンバー一覧 */}
                     {showModalMemberPickerMobile && (
                       <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto p-2 bg-theme-bg-elevated/50 rounded-md">
-                        {members.map((m) => (
+                        {(bulkMemberSearch.trim()
+                          ? members.filter((m) =>
+                              m.name.toLowerCase().includes(bulkMemberSearch.trim().toLowerCase())
+                            )
+                          : members
+                        ).map((m) => (
                           <button
                             key={m.id}
                             type="button"
@@ -1533,7 +1965,12 @@ export default function SchedulePage() {
                   </>
                 ) : (
                   <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto p-2 bg-theme-bg-elevated/50 rounded-md">
-                    {members.map((m) => (
+                    {(bulkMemberSearch.trim()
+                      ? members.filter((m) =>
+                          m.name.toLowerCase().includes(bulkMemberSearch.trim().toLowerCase())
+                        )
+                      : members
+                    ).map((m) => (
                       <button
                         key={m.id}
                         type="button"
@@ -1601,4 +2038,8 @@ export default function SchedulePage() {
   );
 }
 
-
+export default function SchedulePage() {
+  const pathname = usePathname();
+  const embedded = pathname === "/dashboard";
+  return <SchedulePageInner embedded={embedded} />;
+}

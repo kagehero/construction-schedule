@@ -8,10 +8,21 @@ type ProjectRow = Database['public']['Tables']['projects']['Row'];
 const toProject = (row: ProjectRow): Project => ({
   id: row.id,
   title: row.title,
+  customerId: row.customer_id ?? undefined,
   customerName: row.customer_name,
   siteName: row.site_name,
   contractType: row.contract_type as ContractType,
   contractAmount: row.contract_amount ?? undefined,
+  memo: row.memo ?? undefined,
+  siteStatus: (row.site_status as Project["siteStatus"]) ?? undefined,
+  defaultHolidayWeekdays: row.default_holiday_weekdays
+    ? row.default_holiday_weekdays
+        .split(',')
+        .map((v) => v.trim())
+        .filter((v) => v !== '')
+        .map((v) => Number(v))
+        .filter((n) => !Number.isNaN(n) && n >= 0 && n <= 6)
+    : undefined,
   siteAddress: row.site_address,
   startDate: row.start_date,
   endDate: row.end_date,
@@ -50,10 +61,16 @@ export async function createProject(project: Omit<Project, 'id'>): Promise<Proje
     .from('projects')
     .insert({
       title: project.title,
+      customer_id: project.customerId ?? null,
       customer_name: project.customerName,
       site_name: project.siteName,
       contract_type: project.contractType,
       contract_amount: project.contractAmount ?? null,
+      memo: project.memo ?? null,
+      site_status: project.siteStatus ?? null,
+      default_holiday_weekdays: project.defaultHolidayWeekdays
+        ? project.defaultHolidayWeekdays.join(',')
+        : null,
       site_address: project.siteAddress,
       start_date: project.startDate,
       end_date: project.endDate,
@@ -71,10 +88,17 @@ export async function updateProject(
 ): Promise<Project> {
   const updateData: any = {};
   if (project.title !== undefined) updateData.title = project.title;
+  if (project.customerId !== undefined) updateData.customer_id = project.customerId ?? null;
   if (project.customerName !== undefined) updateData.customer_name = project.customerName;
   if (project.siteName !== undefined) updateData.site_name = project.siteName;
   if (project.contractType !== undefined) updateData.contract_type = project.contractType;
   if (project.contractAmount !== undefined) updateData.contract_amount = project.contractAmount ?? null;
+   if (project.memo !== undefined) updateData.memo = project.memo ?? null;
+   if (project.siteStatus !== undefined) updateData.site_status = project.siteStatus ?? null;
+  if (project.defaultHolidayWeekdays !== undefined) {
+    updateData.default_holiday_weekdays =
+      project.defaultHolidayWeekdays ? project.defaultHolidayWeekdays.join(',') : null;
+  }
   if (project.siteAddress !== undefined) updateData.site_address = project.siteAddress;
   if (project.startDate !== undefined) updateData.start_date = project.startDate;
   if (project.endDate !== undefined) updateData.end_date = project.endDate;

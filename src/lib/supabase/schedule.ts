@@ -11,6 +11,7 @@ type DaySiteStatusRow = Database['public']['Tables']['day_site_status']['Row'];
 const toMember = (row: MemberRow): Member => ({
   id: row.id,
   name: row.name,
+  color: (row as any).color || undefined,
 });
 
 const toWorkLine = (row: WorkLineRow): WorkLine => ({
@@ -50,7 +51,10 @@ export async function getMembers(): Promise<Member[]> {
 export async function createMember(member: Omit<Member, 'id'>): Promise<Member> {
   const { data, error } = await supabase
     .from('members')
-    .insert({ name: member.name })
+    .insert({
+      name: member.name,
+      color: member.color ?? null,
+    })
     .select()
     .single();
 
@@ -61,6 +65,7 @@ export async function createMember(member: Omit<Member, 'id'>): Promise<Member> 
 export async function updateMember(id: string, member: Partial<Omit<Member, 'id'>>): Promise<Member> {
   const updateData: any = {};
   if (member.name !== undefined) updateData.name = member.name;
+  if (member.color !== undefined) updateData.color = member.color ?? null;
 
   const { data, error } = await supabase
     .from('members')
@@ -113,11 +118,12 @@ export async function createWorkLine(workLine: Omit<WorkLine, 'id'>): Promise<Wo
 
 export async function updateWorkLine(
   id: string,
-  data: Partial<Pick<WorkLine, 'name' | 'color'>>
+  data: Partial<Pick<WorkLine, 'name' | 'color' | 'projectId'>>
 ): Promise<WorkLine> {
   const updateData: Record<string, unknown> = {};
   if (data.name !== undefined) updateData.name = data.name;
   if (data.color !== undefined) updateData.color = data.color ?? null;
+  if (data.projectId !== undefined) updateData.project_id = data.projectId ?? null;
 
   const { data: row, error } = await supabase
     .from('work_lines')

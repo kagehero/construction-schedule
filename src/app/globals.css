@@ -55,3 +55,21 @@ body {
 *::-webkit-scrollbar {
   display: none; /* Chrome, Safari, Opera */
 }
+
+/* モバイルメニューボタン用ポップアップアニメーション */
+@keyframes menu-pop {
+  from {
+    /* 画面外（ボタンより下）から少し小さく始める */
+    transform: translateY(60px) scale(0.8);
+    opacity: 0;
+  }
+  to {
+    /* 各アイコンごとの最終位置までスライドしながら拡大 */
+    transform: translateY(var(--menu-offset, -40px)) scale(1);
+    opacity: 1;
+  }
+}
+
+.menu-pop {
+  animation: menu-pop 0.28s cubic-bezier(0.19, 1, 0.22, 1) forwards;
+}

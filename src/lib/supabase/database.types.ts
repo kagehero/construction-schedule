@@ -32,14 +32,96 @@ export interface Database {
           updated_at?: string
         }
       }
+      work_groups: {
+        Row: {
+          id: string
+          name: string
+          color: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          color?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          color?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      customers: {
+        Row: {
+          id: string
+          name: string
+          address: string | null
+          phone: string | null
+          contact_person: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          address?: string | null
+          phone?: string | null
+          contact_person?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          address?: string | null
+          phone?: string | null
+          contact_person?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      customer_members: {
+        Row: {
+          id: string
+          customer_id: string
+          name: string
+          color: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          customer_id: string
+          name: string
+          color?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          customer_id?: string
+          name?: string
+          color?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
       projects: {
         Row: {
           id: string
           title: string
+          customer_id: string | null
           customer_name: string
           site_name: string
           contract_type: '請負' | '常用' | '追加工事'
           contract_amount: number | null
+          memo: string | null
+          site_status: string | null
+          default_holiday_weekdays: string | null
           site_address: string
           start_date: string
           end_date: string
@@ -49,10 +131,14 @@ export interface Database {
         Insert: {
           id?: string
           title: string
+          customer_id?: string | null
           customer_name: string
           site_name: string
           contract_type: '請負' | '常用' | '追加工事'
           contract_amount?: number | null
+          memo?: string | null
+          site_status?: string | null
+          default_holiday_weekdays?: string | null
           site_address: string
           start_date: string
           end_date: string
@@ -62,10 +148,14 @@ export interface Database {
         Update: {
           id?: string
           title?: string
+          customer_id?: string | null
           customer_name?: string
           site_name?: string
           contract_type?: '請負' | '常用' | '追加工事'
           contract_amount?: number | null
+          memo?: string | null
+          site_status?: string | null
+          default_holiday_weekdays?: string | null
           site_address?: string
           start_date?: string
           end_date?: string
@@ -91,6 +181,55 @@ export interface Database {
           name?: string
           created_at?: string
           updated_at?: string
+        }
+      }
+      project_phases: {
+        Row: {
+          id: string
+          project_id: string
+          start_date: string
+          end_date: string
+          site_status: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          start_date: string
+          end_date: string
+          site_status: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          start_date?: string
+          end_date?: string
+          site_status?: string
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      project_default_members: {
+        Row: {
+          id: string
+          project_id: string
+          member_id: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          member_id: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          member_id?: string
+          created_at?: string
         }
       }
       work_lines: {

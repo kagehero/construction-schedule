@@ -18,10 +18,15 @@ interface AuthContextType {
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   isAdmin: boolean;
+  /** 主管理者（admin@gmail.com）のみ true。ユーザー管理メニュー表示に使用 */
+  isPrimaryAdmin: boolean;
   isViewer: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+/** 主管理者メール。DBのroleがviewerでも管理者として扱う（メニュー・権限） */
+const PRIMARY_ADMIN_EMAIL = "admin@gmail.com";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -212,10 +217,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
+    // ログアウト時にフロント側のセッション状態も初期化
+    if (typeof window !== 'undefined') {
+      try {
+        // 工程表モーダルの表示フラグなど、このアプリで使っているセッション情報をクリア
+        window.sessionStorage.removeItem('dashboard-schedule-modal-shown');
+      } catch {
+        // sessionStorage が使えない環境でもエラーで落ちないようにする
+      }
+    }
     setProfile(null);
     setUser(null);
   };
 
+  const isPrimaryAdmin = (user?.email?.toLowerCase().trim() === PRIMARY_ADMIN_EMAIL.toLowerCase());
   const value: AuthContextType = {
     user,
     profile,
@@ -223,8 +238,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signIn,
     signUp,
     signOut,
-    isAdmin: profile?.role === 'admin',
-    isViewer: profile?.role === 'viewer' || profile?.role === 'admin',
+    isAdmin: profile?.role === 'admin' || isPrimaryAdmin,
+    isPrimaryAdmin,
+    isViewer: profile?.role === 'viewer' || profile?.role === 'admin' || isPrimaryAdmin,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
