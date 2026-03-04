@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { addDays, format } from "date-fns";
 import { ja } from "date-fns/locale";
 import { Card } from "@/components/ui/card";
@@ -2038,9 +2039,7 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
 }
 
 export default function SchedulePage() {
-  return <SchedulePageInner embedded={false} />;
-}
-
-export function ScheduleEmbedded() {
-  return <SchedulePageInner embedded={true} />;
+  const pathname = usePathname();
+  const embedded = pathname === "/dashboard";
+  return <SchedulePageInner embedded={embedded} />;
 }

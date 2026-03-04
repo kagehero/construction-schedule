@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { getProjects } from "@/lib/supabase/projects";
 import { useState, useEffect } from "react";
 import type { Project } from "@/domain/projects/types";
-import { ScheduleEmbedded } from "@/app/schedule/page";
+import SchedulePage from "@/app/schedule/page";
 
 export default function DashboardPage() {
   const { profile } = useAuth();
@@ -222,7 +222,7 @@ export default function DashboardPage() {
                     工程・人員配置の工程表のうち、本日分のみを表示しています。
                   </p>
                 </div>
-                <ScheduleEmbedded />
+                <SchedulePage />
               </div>
             </div>
           </div>
