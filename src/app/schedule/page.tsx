@@ -891,7 +891,7 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
 
   return (
     <AuthGuard>
-    <div className={embedded ? "flex flex-col" : "h-screen flex flex-col"}>
+    <div className={embedded ? "h-full flex flex-col min-h-0" : "h-screen flex flex-col"}>
       {!embedded && (
         <header className="px-6 py-3 border-b border-theme-border flex items-center justify-between">
           <div className="flex items-baseline gap-4">
