@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { format } from "date-fns";
+import { format, addDays, parseISO, eachDayOfInterval, getDay } from "date-fns";
+import { ja } from "date-fns/locale";
 import { z } from "zod";
 import type { ContractType, Project } from "@/domain/projects/types";
 import { Card } from "@/components/ui/card";
@@ -44,6 +45,60 @@ const projectSchema = z.object({
 type FormState = z.infer<typeof projectSchema>;
 
 const WORK_GROUP_DEFAULT_COLORS = ["#3b82f6", "#f97316", "#22c55e", "#eab308", "#a855f7", "#ef4444", "#06b6d4"];
+
+/** 工程オプション（カレンダーで選択する工程名） */
+const PHASE_OPTIONS = ["組立", "解体", "準備中", "搬入", "養生", "その他"] as const;
+const PHASE_COLORS: Record<string, string> = {
+  "組立": "#22c55e",
+  "解体": "#ef4444",
+  "準備中": "#3b82f6",
+  "搬入": "#f97316",
+  "養生": "#eab308",
+  "その他": "#a855f7"
+};
+
+type PhaseRange = { startDate: string; endDate: string; siteStatus: string };
+
+/** 工程の範囲リストを「日付 → 工程」のマップに展開 */
+function phasesToDateMap(phases: PhaseRange[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const p of phases) {
+    const start = parseISO(p.startDate);
+    const end = parseISO(p.endDate);
+    const days = eachDayOfInterval({ start, end });
+    for (const d of days) {
+      map[format(d, "yyyy-MM-dd")] = p.siteStatus;
+    }
+  }
+  return map;
+}
+
+/** 「日付 → 工程」マップを連続する期間にまとめて工程リストに変換 */
+function dateMapToPhases(dateToPhase: Record<string, string>): PhaseRange[] {
+  const byPhase = new Map<string, string[]>();
+  for (const [date, status] of Object.entries(dateToPhase)) {
+    if (!status) continue;
+    if (!byPhase.has(status)) byPhase.set(status, []);
+    byPhase.get(status)!.push(date);
+  }
+  const result: PhaseRange[] = [];
+  for (const [siteStatus, dates] of byPhase.entries()) {
+    const sorted = [...dates].sort();
+    let i = 0;
+    while (i < sorted.length) {
+      const startDate = sorted[i];
+      let endDate = startDate;
+      while (i + 1 < sorted.length && format(addDays(parseISO(sorted[i]), 1), "yyyy-MM-dd") === sorted[i + 1]) {
+        i++;
+        endDate = sorted[i];
+      }
+      result.push({ startDate, endDate, siteStatus });
+      i++;
+    }
+  }
+  result.sort((a, b) => a.startDate.localeCompare(b.startDate));
+  return result;
+}
 
 /** 工期（開始日・終了日）からステータスを判定 */
 function getProjectStatus(project: Project): "未施工" | "施工中" | "完工" {
@@ -118,7 +173,8 @@ export default function ProjectsPage() {
   const [projectHolidayWeekdays, setProjectHolidayWeekdays] = useState<number[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [selectedDefaultMemberIds, setSelectedDefaultMemberIds] = useState<string[]>([]);
-  const [projectPhases, setProjectPhasesState] = useState<{ startDate: string; endDate: string; siteStatus: string }[]>([]);
+  const [dateToPhase, setDateToPhase] = useState<Record<string, string>>({});
+  const [selectedPhaseForCalendar, setSelectedPhaseForCalendar] = useState<string>("組立");
   // 一覧検索（案件・作業班・取引先・フォーム内メンバー）
   const [projectSearch, setProjectSearch] = useState("");
   const [workGroupSearch, setWorkGroupSearch] = useState("");
@@ -201,7 +257,8 @@ export default function ProjectsPage() {
       setSelectedCustomerId("");
       setProjectHolidayWeekdays([]);
       setSelectedDefaultMemberIds([]);
-      setProjectPhasesState([]);
+      setDateToPhase({});
+      setSelectedPhaseForCalendar("組立");
       setCopySourceProjectId("");
       setCopySourceProjectInput("");
       setErrors({});
@@ -668,7 +725,7 @@ export default function ProjectsPage() {
         contractType: form.contractType as ContractType,
         contractAmount: isUkeoi ? form.contractAmount ?? 0 : undefined,
         memo: form.memo?.trim() || undefined,
-        siteStatus: (projectPhases[0]?.siteStatus ?? form.siteStatus ?? "組立") as Project["siteStatus"],
+        siteStatus: (dateMapToPhases(dateToPhase)[0]?.siteStatus ?? form.siteStatus ?? "組立") as Project["siteStatus"],
         defaultHolidayWeekdays: projectHolidayWeekdays.length ? projectHolidayWeekdays : [],
         siteAddress: form.siteAddress,
         startDate: form.startDate,
@@ -691,8 +748,9 @@ export default function ProjectsPage() {
         }
       }
       await setProjectDefaultMembers(createdProject.id, selectedDefaultMemberIds);
-      const phasesToSave = projectPhases.length > 0
-        ? projectPhases
+      const phasesFromCalendar = dateMapToPhases(dateToPhase);
+      const phasesToSave = phasesFromCalendar.length > 0
+        ? phasesFromCalendar
         : [{ startDate: form.startDate, endDate: form.endDate, siteStatus: form.siteStatus ?? "組立" }];
       await setProjectPhases(createdProject.id, phasesToSave);
 
@@ -740,15 +798,17 @@ export default function ProjectsPage() {
       setSelectedWorkGroupIds([...new Set(ids)]);
       setSelectedDefaultMemberIds(defaultIds);
       if (phases.length > 0) {
-        setProjectPhasesState(phases.map((p) => ({ startDate: p.startDate, endDate: p.endDate, siteStatus: p.siteStatus })));
+        setDateToPhase(phasesToDateMap(phases));
+        setSelectedPhaseForCalendar(phases[0].siteStatus);
       } else {
-        setProjectPhasesState([{ startDate: project.startDate, endDate: project.endDate, siteStatus: project.siteStatus ?? "組立" }]);
+        setDateToPhase(phasesToDateMap([{ startDate: project.startDate, endDate: project.endDate, siteStatus: project.siteStatus ?? "組立" }]));
+        setSelectedPhaseForCalendar(project.siteStatus ?? "組立");
       }
     } catch (error) {
       console.error("Failed to load work lines:", error);
       setSelectedWorkGroupIds([]);
       setSelectedDefaultMemberIds([]);
-      setProjectPhasesState([]);
+      setDateToPhase({});
     }
 
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -790,9 +850,11 @@ export default function ProjectsPage() {
       setSelectedWorkGroupIds([...new Set(ids)]);
       setSelectedDefaultMemberIds(defaultIds);
       if (phases.length > 0) {
-        setProjectPhasesState(phases.map((p) => ({ startDate: p.startDate, endDate: p.endDate, siteStatus: p.siteStatus })));
+        setDateToPhase(phasesToDateMap(phases));
+        setSelectedPhaseForCalendar(phases[0].siteStatus);
       } else {
-        setProjectPhasesState([{ startDate: src.startDate, endDate: src.endDate, siteStatus: src.siteStatus ?? "組立" }]);
+        setDateToPhase(phasesToDateMap([{ startDate: src.startDate, endDate: src.endDate, siteStatus: src.siteStatus ?? "組立" }]));
+        setSelectedPhaseForCalendar(src.siteStatus ?? "組立");
       }
     } catch (error) {
       console.error("Failed to copy from project:", error);
@@ -850,7 +912,7 @@ export default function ProjectsPage() {
         contractType: form.contractType as ContractType,
         contractAmount: isUkeoi ? form.contractAmount ?? 0 : undefined,
         memo: form.memo?.trim() || undefined,
-        siteStatus: (projectPhases[0]?.siteStatus ?? form.siteStatus ?? "組立") as Project["siteStatus"],
+        siteStatus: (dateMapToPhases(dateToPhase)[0]?.siteStatus ?? form.siteStatus ?? "組立") as Project["siteStatus"],
         defaultHolidayWeekdays: projectHolidayWeekdays.length ? projectHolidayWeekdays : [],
         siteAddress: form.siteAddress,
         startDate: form.startDate,
@@ -893,8 +955,9 @@ export default function ProjectsPage() {
         }
       }
       await setProjectDefaultMembers(editingProject.id, selectedDefaultMemberIds);
-      const phasesToSave = projectPhases.length > 0
-        ? projectPhases
+      const phasesFromCalendar = dateMapToPhases(dateToPhase);
+      const phasesToSave = phasesFromCalendar.length > 0
+        ? phasesFromCalendar
         : [{ startDate: form.startDate, endDate: form.endDate, siteStatus: form.siteStatus ?? "組立" }];
       await setProjectPhases(editingProject.id, phasesToSave);
 
@@ -960,32 +1023,22 @@ export default function ProjectsPage() {
     });
     setSelectedWorkGroupIds([]);
     setSelectedDefaultMemberIds([]);
-    setProjectPhasesState([]);
+    setDateToPhase({});
+    setSelectedPhaseForCalendar("組立");
     setErrors({});
     setProjectHolidayWeekdays([]);
   };
 
-  const addProjectPhase = () => {
-    const last = projectPhases[projectPhases.length - 1];
-    const base = last?.endDate || form.startDate || form.endDate || "";
-    setProjectPhasesState((prev) => [
-      ...prev,
-      { startDate: base, endDate: base, siteStatus: "組立" }
-    ]);
-  };
-
-  const removeProjectPhase = (index: number) => {
-    setProjectPhasesState((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const updateProjectPhase = (index: number, field: "startDate" | "endDate" | "siteStatus", value: string) => {
-    setProjectPhasesState((prev) => {
-      const next = [...prev];
-      next[index] = { ...next[index], [field]: value };
-      if (field === "startDate" && value > (next[index].endDate || "")) {
-        next[index].endDate = value;
+  /** カレンダーで日付をクリックしたとき: 選択中の工程を割り当て、同じ工程なら解除 */
+  const toggleDatePhase = (dateStr: string) => {
+    setDateToPhase((prev) => {
+      const current = prev[dateStr];
+      if (current === selectedPhaseForCalendar) {
+        const next = { ...prev };
+        delete next[dateStr];
+        return next;
       }
-      return next;
+      return { ...prev, [dateStr]: selectedPhaseForCalendar };
     });
   };
 
@@ -1466,62 +1519,90 @@ export default function ProjectsPage() {
                 <div>
                   <label className="block mb-1">工程（組立・解体など）</label>
                   <p className="text-[11px] text-theme-text-muted mb-2">
-                    日単位で組立・解体などを設定できます。例: 2/16 組立（1日）、3/16 解体（1日）
+                    下で工程を選び、カレンダーの日付をクリックして割り当てます。同じ日を再度クリックで解除。
                   </p>
-                  <div className="space-y-2 max-h-48 overflow-y-auto rounded-md border border-theme-border bg-theme-bg-input p-2">
-                    {projectPhases.length === 0 ? (
-                      <p className="text-xs text-theme-text-muted">工程が未設定です。「工程を追加」で登録してください。</p>
-                    ) : (
-                      projectPhases.map((phase, i) => (
-                        <div key={i} className="flex flex-wrap items-center gap-2 p-2 rounded bg-theme-bg-elevated">
-                          <input
-                            type="date"
-                            className="rounded border border-theme-border px-2 py-1 text-[11px] bg-theme-bg-input text-theme-text"
-                            value={phase.startDate}
-                            onChange={(e) => updateProjectPhase(i, "startDate", e.target.value)}
-                          />
-                          <span className="text-theme-text-muted text-[11px]">〜</span>
-                          <input
-                            type="date"
-                            className="rounded border border-theme-border px-2 py-1 text-[11px] bg-theme-bg-input text-theme-text"
-                            value={phase.endDate}
-                            onChange={(e) => updateProjectPhase(i, "endDate", e.target.value)}
-                          />
-                          <input
-                            list={`phase-site-status-list-${i}`}
-                            type="text"
-                            className="rounded border border-theme-border px-2 py-1 text-[11px] bg-theme-bg-input text-theme-text min-w-[72px]"
-                            value={phase.siteStatus}
-                            onChange={(e) => updateProjectPhase(i, "siteStatus", e.target.value)}
-                            placeholder="例: 組立"
-                          />
-                          <datalist id={`phase-site-status-list-${i}`}>
-                            <option value="組立" />
-                            <option value="解体" />
-                            <option value="準備中" />
-                            <option value="搬入" />
-                            <option value="養生" />
-                            <option value="その他" />
-                          </datalist>
-                          <button
-                            type="button"
-                            onClick={() => removeProjectPhase(i)}
-                            className="text-theme-text-muted hover:text-red-400 text-[11px] p-1"
-                            title="削除"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))
-                    )}
-                    <button
-                      type="button"
-                      onClick={addProjectPhase}
-                      className="w-full py-1.5 rounded border border-dashed border-theme-border text-[11px] text-theme-text-muted hover:bg-theme-bg-elevated"
-                    >
-                      ＋ 工程を追加
-                    </button>
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <label htmlFor="phase-select-input" className="text-[11px] text-theme-text-muted shrink-0">選択中の工程:</label>
+                    <input
+                      id="phase-select-input"
+                      list="phase-options-datalist"
+                      type="text"
+                      value={selectedPhaseForCalendar}
+                      onChange={(e) => setSelectedPhaseForCalendar(e.target.value)}
+                      placeholder="例: 組立"
+                      className="rounded-md border border-theme-border bg-theme-bg-input text-theme-text px-3 py-1.5 text-sm min-w-[120px]"
+                      style={{
+                        borderColor: PHASE_COLORS[selectedPhaseForCalendar] ?? "var(--theme-border)"
+                      }}
+                    />
+                    <datalist id="phase-options-datalist">
+                      {PHASE_OPTIONS.map((phase) => (
+                        <option key={phase} value={phase} />
+                      ))}
+                    </datalist>
                   </div>
+                  {!form.startDate || !form.endDate ? (
+                    <p className="text-xs text-theme-text-muted rounded-md border border-theme-border bg-theme-bg-input p-3">
+                      先に工期開始日・終了日を入力すると、その期間のカレンダーが表示されます。
+                    </p>
+                  ) : (() => {
+                    const start = parseISO(form.startDate);
+                    const end = parseISO(form.endDate);
+                    if (start > end) {
+                      return <p className="text-xs text-amber-500">開始日が終了日より後になっています。</p>;
+                    }
+                    const allDays = eachDayOfInterval({ start, end });
+                    const byMonth = new Map<string, Date[]>();
+                    for (const d of allDays) {
+                      const key = format(d, "yyyy-MM");
+                      if (!byMonth.has(key)) byMonth.set(key, []);
+                      byMonth.get(key)!.push(d);
+                    }
+                    const monthKeys = [...byMonth.keys()].sort();
+                    return (
+                      <div className="space-y-4 max-h-64 overflow-y-auto rounded-md border border-theme-border bg-theme-bg-input p-3">
+                        {monthKeys.map((monthKey) => {
+                          const days = byMonth.get(monthKey)!;
+                          const firstDay = days[0];
+                          const pad = getDay(firstDay);
+                          return (
+                            <div key={monthKey}>
+                              <div className="text-xs font-medium text-theme-text-muted mb-1">
+                                {format(parseISO(monthKey + "-01"), "yyyy年M月", { locale: ja })}
+                              </div>
+                              <div className="grid grid-cols-7 gap-0.5 text-center">
+                                {["日", "月", "火", "水", "木", "金", "土"].map((w) => (
+                                  <div key={w} className="text-[10px] text-theme-text-muted py-0.5">{w}</div>
+                                ))}
+                                {Array.from({ length: pad }, (_, i) => <div key={`pad-${i}`} />)}
+                                {days.map((d) => {
+                                  const dateStr = format(d, "yyyy-MM-dd");
+                                  const phase = dateToPhase[dateStr];
+                                  const color = phase ? (PHASE_COLORS[phase] ?? "#888") : undefined;
+                                  return (
+                                    <button
+                                      key={dateStr}
+                                      type="button"
+                                      onClick={() => toggleDatePhase(dateStr)}
+                                      className="rounded p-1 min-w-[28px] text-[11px] font-medium border transition-colors hover:ring-2 ring-offset-1 ring-theme-border"
+                                      style={{
+                                        backgroundColor: color ? `${color}33` : "var(--theme-bg-elevated)",
+                                        borderColor: color ?? "var(--theme-border)",
+                                        color: color ? "#111" : "var(--theme-text-muted)"
+                                      }}
+                                      title={phase ? `${dateStr} ${phase}` : dateStr}
+                                    >
+                                      {format(d, "d")}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div>
                   <label className="block mb-1">この案件の標準 週休日（曜日）</label>

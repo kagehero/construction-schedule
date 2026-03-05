@@ -61,14 +61,19 @@ function getMemberColor(memberId: string, members: Member[]): string {
   return MEMBER_COLORS[0];
 }
 
-/** 工程ステータス（組立・解体・商用など）の色分け */
+/** 工程ステータス（組立・解体など）の色分け */
 const PHASE_STATUS_COLORS: Record<string, { bg: string; border: string; text: string }> = {
   組立: { bg: "bg-blue-500/20", border: "border-blue-500/60", text: "text-blue-200" },
   解体: { bg: "bg-red-500/20", border: "border-red-500/60", text: "text-red-200" },
   商用: { bg: "bg-amber-500/20", border: "border-amber-500/60", text: "text-amber-200" },
   準備中: { bg: "bg-amber-500/20", border: "border-amber-500/60", text: "text-amber-200" },
+  搬入: { bg: "bg-orange-500/20", border: "border-orange-500/60", text: "text-orange-200" },
+  養生: { bg: "bg-lime-500/20", border: "border-lime-500/60", text: "text-lime-200" },
   その他: { bg: "bg-slate-500/20", border: "border-slate-500/60", text: "text-slate-300" },
 };
+
+/** 工程が割り当てられていない日付のスタイル（案件期間内だが工程未設定の日） */
+const UNASSIGNED_DAY_STYLE = { bg: "bg-theme-bg-elevated", border: "border-dashed border-theme-border", text: "text-theme-text-muted" };
 
 function getPhaseStatusStyle(status: string) {
   return PHASE_STATUS_COLORS[status] ?? PHASE_STATUS_COLORS["その他"];
@@ -1325,6 +1330,9 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
                       const isWeeklyHoliday =
                         project?.defaultHolidayWeekdays?.includes(weekday) ?? false;
                       const phaseStatus = getPhaseStatusForCell(activeWlId, iso);
+                      // 案件に工程が登録されているが、この日付には工程が割り当てられていないか
+                      const projectPhases = project ? projectPhasesMap.get(project.id) : undefined;
+                      const hasPhasesButUnassigned = !!project && (projectPhases?.length ?? 0) > 0 && !phaseStatus;
                       // 案件とメンバーが割り当てられているかチェック
                       const hasProjectAndMembers = project !== null && cellAssignments.length > 0;
                       return (
@@ -1340,7 +1348,7 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
                           style={{ maxWidth: 0, verticalAlign: 'top', padding: 0, lineHeight: 'normal' }}
                         >
                           <div className="w-full h-full px-1.5 py-1.5 flex flex-col gap-1" style={{ minHeight: '110px', boxSizing: 'border-box' }}>
-                            {/* 案件名・工程（現場の状態に応じて色分け） */}
+                            {/* 案件名・工程（割り当て済み＝色付き、未割り当て＝点線・薄色で区別） */}
                             {project ? (
                                 <div className="flex items-center gap-1 flex-shrink-0">
                                   <button
@@ -1351,12 +1359,14 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
                                       setSelectedProject(project);
                                       setShowProjectModal(true);
                                     }}
-                                    className={`text-[11px] font-semibold truncate rounded px-2 py-0.5 text-left flex-1 min-w-0 transition-colors hover:opacity-90 ${
+                                    className={`text-[11px] font-semibold truncate rounded px-2 py-0.5 text-left flex-1 min-w-0 transition-colors hover:opacity-90 border ${
                                       phaseStatus
-                                        ? `${getPhaseStatusStyle(phaseStatus).bg} ${getPhaseStatusStyle(phaseStatus).border} ${getPhaseStatusStyle(phaseStatus).text} border`
-                                        : "bg-accent/10 hover:bg-accent/20 border border-accent/30 text-accent"
+                                        ? `${getPhaseStatusStyle(phaseStatus).bg} ${getPhaseStatusStyle(phaseStatus).border} ${getPhaseStatusStyle(phaseStatus).text}`
+                                        : hasPhasesButUnassigned
+                                        ? `${UNASSIGNED_DAY_STYLE.bg} ${UNASSIGNED_DAY_STYLE.border} ${UNASSIGNED_DAY_STYLE.text}`
+                                        : "bg-accent/10 hover:bg-accent/20 border-accent/30 text-accent"
                                     }`}
-                                    title={`${project.siteName}${phaseStatus ? ` - ${phaseStatus}` : ""} - クリックで詳細を表示`}
+                                    title={`${project.siteName}${phaseStatus ? ` - ${phaseStatus}` : hasPhasesButUnassigned ? " - 工程未割り当て" : ""} - クリックで詳細を表示`}
                                     style={{ height: '24px', minHeight: '24px', maxHeight: '24px' }}
                                   >
                                     📋 {project.siteName}
