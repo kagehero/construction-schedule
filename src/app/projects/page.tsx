@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { format, addDays, parseISO, eachDayOfInterval, getDay } from "date-fns";
+import { format, addDays, parseISO, eachDayOfInterval, getDay, startOfMonth, endOfMonth, startOfWeek, endOfWeek } from "date-fns";
 import { ja } from "date-fns/locale";
+import HolidayJp from "@holiday-jp/holiday_jp";
 import { z } from "zod";
 import type { ContractType, Project } from "@/domain/projects/types";
 import { Card } from "@/components/ui/card";
@@ -24,7 +25,7 @@ import type { WorkGroup } from "@/lib/supabase/workGroups";
 type TabId = "projects" | "work_lines" | "customers";
 
 const projectSchema = z.object({
-  title: z.string().optional(), // Optional, will use siteName if empty
+  title: z.string().optional(),
   customerName: z.string().min(1, "取引先会社名は必須です"),
   siteName: z.string().min(1, "現場名は必須です"),
   contractType: z.enum(["請負", "常用", "追加工事"]),
@@ -36,8 +37,8 @@ const projectSchema = z.object({
       "請負金額は0以上で入力してください"
     ),
   siteAddress: z.string().min(1, "現場住所は必須です"),
-  startDate: z.string().min(1, "開始日は必須です"),
-  endDate: z.string().min(1, "終了日は必須です"),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
   memo: z.string().max(1000, "メモは1000文字以内で入力してください").optional(),
   siteStatus: z.string().max(50, "現場ステータスは50文字以内で入力してください").optional()
 });
@@ -98,6 +99,13 @@ function dateMapToPhases(dateToPhase: Record<string, string>): PhaseRange[] {
   }
   result.sort((a, b) => a.startDate.localeCompare(b.startDate));
   return result;
+}
+
+/** dateToPhaseから開始日・終了日を計算 */
+function getStartEndFromDateMap(dateToPhase: Record<string, string>): { startDate: string; endDate: string } | null {
+  const dates = Object.keys(dateToPhase).filter((d) => dateToPhase[d]).sort();
+  if (dates.length === 0) return null;
+  return { startDate: dates[0], endDate: dates[dates.length - 1] };
 }
 
 /** 工期（開始日・終了日）からステータスを判定 */
@@ -679,7 +687,25 @@ export default function ProjectsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const parsed = projectSchema.safeParse(form);
+    
+    // 工程が1つも割り当てられていない場合はエラー
+    if (Object.keys(dateToPhase).filter((d) => dateToPhase[d]).length === 0) {
+      setErrors({ submit: "工程を1日以上割り当ててください。" });
+      toast.error("工程を1日以上割り当ててください。");
+      return;
+    }
+    
+    const startEnd = getStartEndFromDateMap(dateToPhase);
+    if (!startEnd) {
+      setErrors({ submit: "工程を1日以上割り当ててください。" });
+      toast.error("工程を1日以上割り当ててください。");
+      return;
+    }
+    
+    // startDate/endDateをdateToPhaseから自動計算して補完
+    const formWithDates = { ...form, startDate: startEnd.startDate, endDate: startEnd.endDate };
+    
+    const parsed = projectSchema.safeParse(formWithDates);
     if (!parsed.success) {
       const fieldErrors: Record<string, string> = {};
       parsed.error.issues.forEach((issue) => {
@@ -700,12 +726,15 @@ export default function ProjectsPage() {
       const selectedGroupNames = new Set(
         workGroups.filter((wg) => selectedWorkGroupIds.includes(wg.id)).map((wg) => wg.name)
       );
+      const startEnd = getStartEndFromDateMap(dateToPhase);
+      const projectStartDate = startEnd?.startDate ?? format(new Date(), "yyyy-MM-dd");
+      const projectEndDate = startEnd?.endDate ?? format(new Date(), "yyyy-MM-dd");
+      const start = projectStartDate;
+      const end = projectEndDate;
       for (const wl of allLines) {
         if (!selectedGroupNames.has(wl.name)) continue;
         const existingProject = projects.find((p) => p.id === wl.projectId);
         if (!existingProject) continue;
-        const start = form.startDate <= form.endDate ? form.startDate : form.endDate;
-        const end = form.startDate <= form.endDate ? form.endDate : form.startDate;
         const exStart = existingProject.startDate;
         const exEnd = existingProject.endDate;
         const overlapStart = start <= exEnd && exStart <= end ? (exStart > start ? exStart : start) : null;
@@ -718,7 +747,7 @@ export default function ProjectsPage() {
       }
 
       const newProject: Omit<Project, 'id'> = {
-        title: form.title || form.siteName, // Use siteName as title if title is empty
+        title: form.title || form.siteName,
         customerId: selectedCustomerIdForSave,
         customerName: form.customerName,
         siteName: form.siteName,
@@ -728,8 +757,8 @@ export default function ProjectsPage() {
         siteStatus: (dateMapToPhases(dateToPhase)[0]?.siteStatus ?? form.siteStatus ?? "組立") as Project["siteStatus"],
         defaultHolidayWeekdays: projectHolidayWeekdays.length ? projectHolidayWeekdays : [],
         siteAddress: form.siteAddress,
-        startDate: form.startDate,
-        endDate: form.endDate
+        startDate: projectStartDate,
+        endDate: projectEndDate
       };
 
       const createdProject = await createProject(newProject);
@@ -751,7 +780,7 @@ export default function ProjectsPage() {
       const phasesFromCalendar = dateMapToPhases(dateToPhase);
       const phasesToSave = phasesFromCalendar.length > 0
         ? phasesFromCalendar
-        : [{ startDate: form.startDate, endDate: form.endDate, siteStatus: form.siteStatus ?? "組立" }];
+        : [{ startDate: projectStartDate, endDate: projectEndDate, siteStatus: form.siteStatus ?? "組立" }];
       await setProjectPhases(createdProject.id, phasesToSave);
 
       setProjects((prev) => [createdProject, ...prev]);
@@ -865,7 +894,24 @@ export default function ProjectsPage() {
     e.preventDefault();
     if (!editingProject) return;
 
-    const parsed = projectSchema.safeParse(form);
+    // 工程が1つも割り当てられていない場合はエラー
+    if (Object.keys(dateToPhase).filter((d) => dateToPhase[d]).length === 0) {
+      setErrors({ submit: "工程を1日以上割り当ててください。" });
+      toast.error("工程を1日以上割り当ててください。");
+      return;
+    }
+    
+    const startEnd = getStartEndFromDateMap(dateToPhase);
+    if (!startEnd) {
+      setErrors({ submit: "工程を1日以上割り当ててください。" });
+      toast.error("工程を1日以上割り当ててください。");
+      return;
+    }
+    
+    // startDate/endDateをdateToPhaseから自動計算して補完
+    const formWithDates = { ...form, startDate: startEnd.startDate, endDate: startEnd.endDate };
+
+    const parsed = projectSchema.safeParse(formWithDates);
     if (!parsed.success) {
       const fieldErrors: Record<string, string> = {};
       parsed.error.issues.forEach((issue) => {
@@ -886,8 +932,8 @@ export default function ProjectsPage() {
       const selectedGroupNames = new Set(
         workGroups.filter((wg) => selectedWorkGroupIds.includes(wg.id)).map((wg) => wg.name)
       );
-      const start = form.startDate <= form.endDate ? form.startDate : form.endDate;
-      const end = form.startDate <= form.endDate ? form.endDate : form.startDate;
+      const start = startEnd.startDate;
+      const end = startEnd.endDate;
       for (const wl of allLines) {
         if (!selectedGroupNames.has(wl.name)) continue;
         if (wl.projectId === editingProject.id) continue; // 自案件は除外
@@ -915,8 +961,8 @@ export default function ProjectsPage() {
         siteStatus: (dateMapToPhases(dateToPhase)[0]?.siteStatus ?? form.siteStatus ?? "組立") as Project["siteStatus"],
         defaultHolidayWeekdays: projectHolidayWeekdays.length ? projectHolidayWeekdays : [],
         siteAddress: form.siteAddress,
-        startDate: form.startDate,
-        endDate: form.endDate
+        startDate: start,
+        endDate: end
       };
 
       const updatedProject = await updateProject(editingProject.id, updateData);
@@ -958,7 +1004,7 @@ export default function ProjectsPage() {
       const phasesFromCalendar = dateMapToPhases(dateToPhase);
       const phasesToSave = phasesFromCalendar.length > 0
         ? phasesFromCalendar
-        : [{ startDate: form.startDate, endDate: form.endDate, siteStatus: form.siteStatus ?? "組立" }];
+        : [{ startDate: start, endDate: end, siteStatus: form.siteStatus ?? "組立" }];
       await setProjectPhases(editingProject.id, phasesToSave);
 
       setProjects((prev) =>
@@ -1496,26 +1542,6 @@ export default function ProjectsPage() {
                     <p className="mt-1 text-xs text-red-400">{errors.siteAddress}</p>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block mb-1">工期開始日</label>
-                    <input
-                      type="date"
-                      className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
-                      value={form.startDate}
-                      onChange={(e) => handleChange("startDate", e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block mb-1">工期終了日</label>
-                    <input
-                      type="date"
-                      className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2"
-                      value={form.endDate}
-                      onChange={(e) => handleChange("endDate", e.target.value)}
-                    />
-                  </div>
-                </div>
                 <div>
                   <label className="block mb-1">工程（組立・解体など）</label>
                   <p className="text-[11px] text-theme-text-muted mb-2">
@@ -1541,65 +1567,82 @@ export default function ProjectsPage() {
                       ))}
                     </datalist>
                   </div>
-                  {!form.startDate || !form.endDate ? (
-                    <p className="text-xs text-theme-text-muted rounded-md border border-theme-border bg-theme-bg-input p-3">
-                      先に工期開始日・終了日を入力すると、その期間のカレンダーが表示されます。
-                    </p>
-                  ) : (() => {
-                    const start = parseISO(form.startDate);
-                    const end = parseISO(form.endDate);
-                    if (start > end) {
-                      return <p className="text-xs text-amber-500">開始日が終了日より後になっています。</p>;
+                  {(() => {
+                    const today = new Date();
+                    const currentYear = today.getFullYear();
+                    const currentMonth = today.getMonth(); // 0-11
+                    const startMonth = startOfMonth(today);
+                    // 今月から今年の12月までのカレンダーを生成
+                    const months: Date[] = [];
+                    for (let month = currentMonth; month <= 11; month++) {
+                      months.push(new Date(currentYear, month, 1));
                     }
-                    const allDays = eachDayOfInterval({ start, end });
-                    const byMonth = new Map<string, Date[]>();
-                    for (const d of allDays) {
-                      const key = format(d, "yyyy-MM");
-                      if (!byMonth.has(key)) byMonth.set(key, []);
-                      byMonth.get(key)!.push(d);
-                    }
-                    const monthKeys = [...byMonth.keys()].sort();
+                    
                     return (
-                      <div className="space-y-4 max-h-64 overflow-y-auto rounded-md border border-theme-border bg-theme-bg-input p-3">
-                        {monthKeys.map((monthKey) => {
-                          const days = byMonth.get(monthKey)!;
-                          const firstDay = days[0];
-                          const pad = getDay(firstDay);
-                          return (
-                            <div key={monthKey}>
-                              <div className="text-xs font-medium text-theme-text-muted mb-1">
-                                {format(parseISO(monthKey + "-01"), "yyyy年M月", { locale: ja })}
-                              </div>
-                              <div className="grid grid-cols-7 gap-0.5 text-center">
-                                {["日", "月", "火", "水", "木", "金", "土"].map((w) => (
-                                  <div key={w} className="text-[10px] text-theme-text-muted py-0.5">{w}</div>
-                                ))}
-                                {Array.from({ length: pad }, (_, i) => <div key={`pad-${i}`} />)}
-                                {days.map((d) => {
-                                  const dateStr = format(d, "yyyy-MM-dd");
-                                  const phase = dateToPhase[dateStr];
-                                  const color = phase ? (PHASE_COLORS[phase] ?? "#888") : undefined;
-                                  return (
-                                    <button
-                                      key={dateStr}
-                                      type="button"
-                                      onClick={() => toggleDatePhase(dateStr)}
-                                      className="rounded p-1 min-w-[28px] text-[11px] font-medium border transition-colors hover:ring-2 ring-offset-1 ring-theme-border"
-                                      style={{
-                                        backgroundColor: color ? `${color}33` : "var(--theme-bg-elevated)",
-                                        borderColor: color ?? "var(--theme-border)",
-                                        color: color ? "#111" : "var(--theme-text-muted)"
-                                      }}
-                                      title={phase ? `${dateStr} ${phase}` : dateStr}
-                                    >
-                                      {format(d, "d")}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          );
-                        })}
+                      <div className="rounded-md border border-theme-border bg-theme-bg-input p-3">
+                        <div className="max-h-[600px] overflow-y-auto">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {months.map((monthFirstDay) => {
+                              const monthKey = format(monthFirstDay, "yyyy-MM");
+                              const monthStart = startOfWeek(startOfMonth(monthFirstDay), { weekStartsOn: 0 });
+                              const monthEnd = endOfWeek(endOfMonth(monthFirstDay), { weekStartsOn: 0 });
+                              const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
+                              const pad = getDay(monthFirstDay);
+                              
+                              return (
+                                <div key={monthKey} className="border border-theme-border rounded-md p-3 bg-theme-bg-elevated/50">
+                                  <div className="text-sm font-semibold text-center text-theme-text mb-2">
+                                    {format(monthFirstDay, "yyyy年 M月", { locale: ja })}
+                                  </div>
+                                  <div className="grid grid-cols-7 gap-1 text-center">
+                                    {["日", "月", "火", "水", "木", "金", "土"].map((w, idx) => (
+                                      <div 
+                                        key={w} 
+                                        className={`text-[10px] font-medium py-1 ${
+                                          idx === 0 ? "text-red-400" : idx === 6 ? "text-blue-400" : "text-theme-text-muted"
+                                        }`}
+                                      >
+                                        {w}
+                                      </div>
+                                    ))}
+                                    {Array.from({ length: pad }, (_, i) => <div key={`pad-${i}`} />)}
+                                    {days.slice(pad).map((d) => {
+                                      const dateStr = format(d, "yyyy-MM-dd");
+                                      const phase = dateToPhase[dateStr];
+                                      const color = phase ? (PHASE_COLORS[phase] ?? "#888") : undefined;
+                                      const isCurrentMonth = format(d, "yyyy-MM") === monthKey;
+                                      const dayOfWeek = getDay(d);
+                                      const isSaturday = dayOfWeek === 6;
+                                      const isSunday = dayOfWeek === 0;
+                                      const holiday = HolidayJp.isHoliday(d);
+                                      const isHolidayOrSunday = isSunday || holiday;
+                                      
+                                      return (
+                                        <button
+                                          key={dateStr}
+                                          type="button"
+                                          onClick={() => isCurrentMonth && toggleDatePhase(dateStr)}
+                                          disabled={!isCurrentMonth}
+                                          className={`rounded-full aspect-square flex items-center justify-center text-xs font-medium transition-colors hover:ring-2 ring-offset-1 ring-theme-border ${
+                                            !isCurrentMonth ? "opacity-30 cursor-not-allowed" : ""
+                                          } ${color ? "border-2" : "border"}`}
+                                          style={{
+                                            backgroundColor: color ? `${color}` : "transparent",
+                                            borderColor: color ?? "transparent",
+                                            color: color ? "#fff" : isHolidayOrSunday ? "#f87171" : isSaturday ? "#60a5fa" : "var(--theme-text-muted)"
+                                          }}
+                                          title={phase ? `${dateStr} ${phase}` : holiday ? `${dateStr} ${HolidayJp.between(d, d)[0]?.name || "祝日"}` : dateStr}
+                                        >
+                                          {format(d, "d")}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
                       </div>
                     );
                   })()}
