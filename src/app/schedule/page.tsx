@@ -1625,7 +1625,20 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
               )}
               <div>
                 <label className="text-xs text-theme-text-muted block mb-1">現場住所</label>
-                <div className="text-sm">{selectedProject.siteAddress}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm flex-1 min-w-0">{selectedProject.siteAddress}</span>
+                  {selectedProject.siteAddress?.trim() && (
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedProject.siteAddress.trim())}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 shrink-0 px-3 py-1.5 rounded-md bg-accent/15 border border-accent/40 text-accent text-xs font-medium hover:bg-accent/25"
+                    >
+                      <span aria-hidden>🗺</span>
+                      地図で開く
+                    </a>
+                  )}
+                </div>
               </div>
               {selectedProject.memo && (
                 <div>
