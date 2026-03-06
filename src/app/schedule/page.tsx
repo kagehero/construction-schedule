@@ -112,16 +112,12 @@ function useIsMobile(): boolean {
 
 const DAYS_VISIBLE_IN_VIEWPORT = 7; // 画面に表示する日数（通常）
 const ROWS_VISIBLE_IN_VIEWPORT = 4; // 1画面に表示する作業班の行数（通常）
-const EMBEDDED_ROWS_VISIBLE = 3; // ダッシュボードのモーダル内で表示する行数
 const ROW_HEIGHT_PX = 110; // 1行の高さ（px）
 const TABLE_HEADER_HEIGHT_PX = 48;
 const TABLE_FOOTER_HEIGHT_PX = 44;
 /** 工程表スクロール領域の高さ（ヘッダー + 4行 + フッター） */
 const SCHEDULE_SCROLL_HEIGHT_PX =
   TABLE_HEADER_HEIGHT_PX + ROWS_VISIBLE_IN_VIEWPORT * ROW_HEIGHT_PX + TABLE_FOOTER_HEIGHT_PX;
-/** 工程表スクロール領域の高さ（埋め込み表示用: ヘッダー + 3行 + フッター） */
-const EMBEDDED_SCHEDULE_SCROLL_HEIGHT_PX =
-  TABLE_HEADER_HEIGHT_PX + EMBEDDED_ROWS_VISIBLE * ROW_HEIGHT_PX + TABLE_FOOTER_HEIGHT_PX;
 
 // 仮のユーザー権限（本番ではログイン情報から取得する想定）
 const CURRENT_USER_ROLE: "admin" | "viewer" = "admin";
@@ -1210,7 +1206,7 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
             className="overflow-y-auto overflow-x-auto"
             style={{ 
               width: '100%',
-              height: embedded ? EMBEDDED_SCHEDULE_SCROLL_HEIGHT_PX : SCHEDULE_SCROLL_HEIGHT_PX
+              height: embedded ? 'calc(100vh - 110px)' : SCHEDULE_SCROLL_HEIGHT_PX
             }}
           >
             <table className="border-collapse text-[11px] w-full" style={{ tableLayout: 'fixed', minHeight: '280px' }} cellPadding="0" cellSpacing="0">
