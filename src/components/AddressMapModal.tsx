@@ -74,7 +74,10 @@ export function AddressMapModal({
 }: AddressMapModalProps): JSX.Element | null {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const showAddressOnMapRef = useRef<((address: string) => void) | null>(null);
   const [isReady, setIsReady] = useState(false);
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
 
   useEffect(() => {
     if (!open) return;
@@ -116,6 +119,12 @@ export function AddressMapModal({
       position: center,
     });
 
+    const applyAddress = (address: string) => {
+      if (address && onSelectRef.current) {
+        onSelectRef.current(address);
+      }
+    };
+
     const autocomplete = new google.maps.places.Autocomplete(inputRef.current, {
       fields: ["formatted_address", "geometry"],
       types: ["geocode"],
@@ -131,21 +140,73 @@ export function AddressMapModal({
 
       const address =
         place.formatted_address || (inputRef.current ? inputRef.current.value : "");
-      if (address) {
-        onSelect(address);
-      }
+      applyAddress(address);
     });
+
+    map.addListener("click", (e: { latLng: { lat: () => number; lng: () => number } }) => {
+      const latLng = e.latLng;
+      marker.setPosition(latLng);
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ location: latLng }, (results: { formatted_address: string }[] | null, status: string) => {
+        if (status === "OK" && results && results[0]) {
+          applyAddress(results[0].formatted_address);
+          if (inputRef.current) {
+            inputRef.current.value = results[0].formatted_address;
+          }
+        }
+      });
+    });
+
+    const geocoder = new google.maps.Geocoder();
+    const showAddressOnMap = (address: string) => {
+      const q = (address || "").trim();
+      if (!q) return;
+      geocoder.geocode(
+        { address: q, region: "jp" },
+        (
+          results: { formatted_address?: string; geometry: { location: { lat: () => number; lng: () => number } } }[] | null,
+          status: string
+        ) => {
+          if (status === "OK" && results && results[0] && results[0].geometry) {
+            const first = results[0];
+            const loc = first.geometry.location;
+            map.panTo(loc);
+            marker.setPosition(loc);
+            map.setZoom(16);
+            const formattedAddress = first.formatted_address || q;
+            applyAddress(formattedAddress);
+            if (inputRef.current) {
+              inputRef.current.value = formattedAddress;
+            }
+          }
+        }
+      );
+    };
+
+    showAddressOnMapRef.current = showAddressOnMap;
 
     if (initialQuery && inputRef.current) {
       inputRef.current.value = initialQuery;
+      showAddressOnMap(initialQuery);
     }
 
+    const inputEl = inputRef.current;
+    const onInputKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        const value = inputRef.current ? inputRef.current.value.trim() : "";
+        if (value) showAddressOnMap(value);
+      }
+    };
+    inputEl.addEventListener("keydown", onInputKeyDown);
+
     return () => {
+      showAddressOnMapRef.current = null;
+      inputEl.removeEventListener("keydown", onInputKeyDown);
       if (listener && google.maps.event && google.maps.event.removeListener) {
         google.maps.event.removeListener(listener);
       }
     };
-  }, [open, isReady, initialQuery, onSelect]);
+  }, [open, isReady, initialQuery]);
 
   if (!open) return null;
 
@@ -175,14 +236,26 @@ export function AddressMapModal({
             <label className="block mb-1 text-[11px] text-theme-text-muted-strong">
               住所・ランドマークで検索
             </label>
-            <input
-              ref={inputRef}
-              type="text"
-              className="w-full rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2 text-sm"
-              placeholder="例: 東京駅、日本武道館、○○市△△町 など"
-            />
+            <div className="flex gap-2">
+              <input
+                ref={inputRef}
+                type="text"
+                className="flex-1 rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2 text-sm"
+                placeholder="例: 東京駅、日本武道館、○○市△△町 など"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const value = inputRef.current ? inputRef.current.value.trim() : "";
+                  if (value && showAddressOnMapRef.current) showAddressOnMapRef.current(value);
+                }}
+                className="shrink-0 px-3 py-2 rounded-md bg-accent/15 border border-accent/40 text-accent text-xs font-medium hover:bg-accent/25"
+              >
+                地図で表示
+              </button>
+            </div>
             <p className="mt-1 text-[11px] text-theme-text-muted">
-              検索候補から場所を選ぶと、その住所が現場住所に反映されます。
+              住所を入力して Enter または「地図で表示」を押すと地図が該当地域に移動し、<strong>現場住所にも自動で反映</strong>されます。検索候補から選んでも同様に反映されます。
             </p>
           </div>
           <div
