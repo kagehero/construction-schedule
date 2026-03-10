@@ -213,20 +213,20 @@ export function AddressMapModal({
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 md:p-8 bg-black/50">
       <div className="w-full max-w-5xl max-h-[95vh] bg-theme-card border border-theme-border rounded-xl shadow-xl flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-theme-border">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-theme-border">
           <h2 className="text-sm font-semibold text-theme-text">地図から住所を検索</h2>
           <button
             type="button"
             onClick={onClose}
-            className="p-2 -mr-2 rounded-md text-theme-text-muted hover:bg-theme-bg-elevated hover:text-theme-text"
+            className="p-1.5 -mr-1.5 rounded-md text-theme-text-muted hover:bg-theme-bg-elevated hover:text-theme-text"
             aria-label="閉じる"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
-        <div className="p-4 space-y-3 text-xs text-theme-text flex-1 min-h-0">
+        <div className="p-3 space-y-2 text-xs text-theme-text flex-1 min-h-0">
           {!GOOGLE_MAPS_API_KEY && (
             <p className="text-red-400 text-[11px]">
               NEXT_PUBLIC_GOOGLE_MAPS_API_KEY が設定されていないため、地図検索は利用できません。
@@ -236,11 +236,11 @@ export function AddressMapModal({
             <label className="block mb-1 text-[11px] text-theme-text-muted-strong">
               住所・ランドマークで検索
             </label>
-            <div className="flex gap-2">
+            <div className="flex gap-1.5">
               <input
                 ref={inputRef}
                 type="text"
-                className="flex-1 rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-3 py-2 text-sm"
+                className="flex-1 rounded-md bg-theme-bg-input border border-theme-border text-theme-text px-2 py-1.5 text-[11px]"
                 placeholder="例: 東京駅、日本武道館、○○市△△町 など"
               />
               <button
@@ -249,7 +249,7 @@ export function AddressMapModal({
                   const value = inputRef.current ? inputRef.current.value.trim() : "";
                   if (value && showAddressOnMapRef.current) showAddressOnMapRef.current(value);
                 }}
-                className="shrink-0 px-3 py-2 rounded-md bg-accent/15 border border-accent/40 text-accent text-xs font-medium hover:bg-accent/25"
+                className="shrink-0 px-2 py-1 rounded-md bg-accent/15 border border-accent/40 text-accent text-[11px] font-medium hover:bg-accent/25"
               >
                 地図で表示
               </button>
@@ -263,11 +263,11 @@ export function AddressMapModal({
             className="mt-2 w-full h-80 md:h-[420px] rounded-md border border-theme-border bg-theme-bg-input"
           />
         </div>
-        <div className="flex justify-end gap-2 px-4 py-3 border-t border-theme-border">
+        <div className="flex justify-end gap-1.5 px-3 py-2 border-t border-theme-border">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-md border border-theme-border text-[11px] text-theme-text hover:bg-theme-bg-elevated"
+            className="px-2.5 py-1 rounded-md border border-theme-border text-[11px] text-theme-text hover:bg-theme-bg-elevated"
           >
             閉じる
           </button>

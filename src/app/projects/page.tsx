@@ -1723,9 +1723,9 @@ export default function ProjectsPage() {
                   />
                 </div>
                 <div>
-                  <label className="block mb-1">作業班</label>
+                  <label className="block mb-1">作業班（任意）</label>
                   <p className="text-[11px] text-theme-text-muted mb-2">
-                    「作業班管理」タブで登録した班から選択します。複数選択できます。
+                    未選択でも登録できます。未選択の案件は工程表の「未配置」欄に表示され、後から班を割り当てられます。
                   </p>
                   <div className="space-y-2 max-h-40 overflow-y-auto rounded-md border border-theme-border bg-theme-bg-input p-2">
                     {workGroups.length === 0 ? (
