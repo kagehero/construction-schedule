@@ -46,6 +46,23 @@ body {
   color: var(--color-text);
 }
 
+/* 入力欄・選択欄をサイト全体のテーマ色に合わせる（白飛び防止） */
+input,
+select,
+textarea {
+  background-color: var(--color-bg-input);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-text-muted);
+}
+option {
+  background-color: var(--color-bg-input);
+  color: var(--color-text);
+}
+
 * {
   box-sizing: border-box;
   scrollbar-width: none; /* Firefox: スクロールバー非表示（マウススクロールは有効） */

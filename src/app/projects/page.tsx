@@ -58,6 +58,44 @@ const PHASE_COLORS: Record<string, string> = {
   "その他": "#a855f7"
 };
 
+/** 自由入力工程用の色パレット（プリセット以外の工程に順番に割り当て） */
+const CUSTOM_PHASE_COLORS = [
+  "#ec4899", // ピンク
+  "#8b5cf6", // パープル
+  "#06b6d4", // シアン
+  "#14b8a6", // ティール
+  "#84cc16", // ライム
+  "#f59e0b", // アンバー
+  "#f43f5e", // ローズ
+  "#6366f1", // インディゴ
+  "#10b981", // エメラルド
+  "#f97316", // オレンジ
+];
+
+/** 文字列からハッシュ値を生成（同じ文字列は常に同じ値） */
+function stringToHash(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash);
+}
+
+/** 工程名から色を取得（プリセット → ハッシュベース割り当て → デフォルト） */
+function getPhaseColor(phaseName: string, allPhaseNames?: string[]): string {
+  // プリセットの色があればそれを使用
+  if (PHASE_COLORS[phaseName]) {
+    return PHASE_COLORS[phaseName];
+  }
+  
+  // カスタム工程の場合は名前のハッシュから色を決定（常に同じ色）
+  const hash = stringToHash(phaseName);
+  const colorIndex = hash % CUSTOM_PHASE_COLORS.length;
+  return CUSTOM_PHASE_COLORS[colorIndex];
+}
+
 type PhaseRange = { startDate: string; endDate: string; siteStatus: string };
 
 /** 工程の範囲リストを「日付 → 工程」のマップに展開 */
@@ -182,7 +220,7 @@ export default function ProjectsPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [selectedDefaultMemberIds, setSelectedDefaultMemberIds] = useState<string[]>([]);
   const [dateToPhase, setDateToPhase] = useState<Record<string, string>>({});
-  const [selectedPhaseForCalendar, setSelectedPhaseForCalendar] = useState<string>("組立");
+  const [selectedPhaseForCalendar, setSelectedPhaseForCalendar] = useState<string>("");
   // 一覧検索（案件・作業班・取引先・フォーム内メンバー）
   const [projectSearch, setProjectSearch] = useState("");
   const [workGroupSearch, setWorkGroupSearch] = useState("");
@@ -266,7 +304,7 @@ export default function ProjectsPage() {
       setProjectHolidayWeekdays([]);
       setSelectedDefaultMemberIds([]);
       setDateToPhase({});
-      setSelectedPhaseForCalendar("組立");
+      setSelectedPhaseForCalendar("");
       setCopySourceProjectId("");
       setCopySourceProjectInput("");
       setErrors({});
@@ -831,7 +869,7 @@ export default function ProjectsPage() {
         setSelectedPhaseForCalendar(phases[0].siteStatus);
       } else {
         setDateToPhase(phasesToDateMap([{ startDate: project.startDate, endDate: project.endDate, siteStatus: project.siteStatus ?? "組立" }]));
-        setSelectedPhaseForCalendar(project.siteStatus ?? "組立");
+        setSelectedPhaseForCalendar(project.siteStatus ?? "");
       }
     } catch (error) {
       console.error("Failed to load work lines:", error);
@@ -883,7 +921,7 @@ export default function ProjectsPage() {
         setSelectedPhaseForCalendar(phases[0].siteStatus);
       } else {
         setDateToPhase(phasesToDateMap([{ startDate: src.startDate, endDate: src.endDate, siteStatus: src.siteStatus ?? "組立" }]));
-        setSelectedPhaseForCalendar(src.siteStatus ?? "組立");
+        setSelectedPhaseForCalendar(src.siteStatus ?? "");
       }
     } catch (error) {
       console.error("Failed to copy from project:", error);
@@ -1070,7 +1108,7 @@ export default function ProjectsPage() {
     setSelectedWorkGroupIds([]);
     setSelectedDefaultMemberIds([]);
     setDateToPhase({});
-    setSelectedPhaseForCalendar("組立");
+    setSelectedPhaseForCalendar("");
     setErrors({});
     setProjectHolidayWeekdays([]);
   };
@@ -1558,7 +1596,7 @@ export default function ProjectsPage() {
                       placeholder="例: 組立"
                       className="rounded-md border border-theme-border bg-theme-bg-input text-theme-text px-3 py-1.5 text-sm min-w-[120px]"
                       style={{
-                        borderColor: PHASE_COLORS[selectedPhaseForCalendar] ?? "var(--theme-border)"
+                        borderColor: getPhaseColor(selectedPhaseForCalendar)
                       }}
                     />
                     <datalist id="phase-options-datalist">
@@ -1577,6 +1615,8 @@ export default function ProjectsPage() {
                     for (let month = currentMonth; month <= 11; month++) {
                       months.push(new Date(currentYear, month, 1));
                     }
+                    
+                    const allPhaseNames = Object.values(dateToPhase).filter(p => p);
                     
                     return (
                       <div className="rounded-md border border-theme-border bg-theme-bg-input p-3">
@@ -1609,7 +1649,7 @@ export default function ProjectsPage() {
                                     {days.slice(pad).map((d) => {
                                       const dateStr = format(d, "yyyy-MM-dd");
                                       const phase = dateToPhase[dateStr];
-                                      const color = phase ? (PHASE_COLORS[phase] ?? "#888") : undefined;
+                                      const color = phase ? getPhaseColor(phase) : undefined;
                                       const isCurrentMonth = format(d, "yyyy-MM") === monthKey;
                                       const dayOfWeek = getDay(d);
                                       const isSaturday = dayOfWeek === 6;
@@ -1683,9 +1723,9 @@ export default function ProjectsPage() {
                   />
                 </div>
                 <div>
-                  <label className="block mb-1">作業班</label>
+                  <label className="block mb-1">作業班（任意）</label>
                   <p className="text-[11px] text-theme-text-muted mb-2">
-                    「作業班管理」タブで登録した班から選択します。複数選択できます。
+                    未選択でも登録できます。未選択の案件は工程表の「未配置」欄に表示され、後から班を割り当てられます。
                   </p>
                   <div className="space-y-2 max-h-40 overflow-y-auto rounded-md border border-theme-border bg-theme-bg-input p-2">
                     {workGroups.length === 0 ? (

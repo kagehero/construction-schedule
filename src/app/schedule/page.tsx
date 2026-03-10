@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { addDays, format } from "date-fns";
+import { addDays, format, parseISO, eachDayOfInterval, getDay, startOfMonth, endOfMonth, startOfWeek, endOfWeek } from "date-fns";
 import { ja } from "date-fns/locale";
 import { Card } from "@/components/ui/card";
 import type {
@@ -15,13 +15,15 @@ import { createAssignmentsForRange } from "@/domain/schedule/service";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthGuard } from "@/components/AuthGuard";
 import toast from "react-hot-toast";
-import { getWorkLines, getAssignments, createAssignments, deleteAssignments, getMembers } from "@/lib/supabase/schedule";
-import { getProjects } from "@/lib/supabase/projects";
+import { getWorkLines, createWorkLine, deleteWorkLine, getAssignments, createAssignments, deleteAssignments, getMembers } from "@/lib/supabase/schedule";
+import { getProjects, updateProject } from "@/lib/supabase/projects";
+import { getWorkGroups } from "@/lib/supabase/workGroups";
 import { getProjectDefaultMemberIds } from "@/lib/supabase/projectDefaultMembers";
-import { getProjectPhasesMap, getPhaseStatusForDate } from "@/lib/supabase/projectPhases";
+import { getProjectPhasesMap, getPhaseStatusForDate, setProjectPhases } from "@/lib/supabase/projectPhases";
 import { getCustomerMembersByCustomerIds } from "@/lib/supabase/customerMembers";
 import type { Project } from "@/domain/projects/types";
 import type { CustomerMember } from "@/lib/supabase/customerMembers";
+import type { WorkGroup } from "@/lib/supabase/workGroups";
 
 // カレンダー上の丸アイコン用の省略名を生成
 const getMemberShortName = (name: string): string => {
@@ -74,6 +76,55 @@ const PHASE_STATUS_COLORS: Record<string, { bg: string; border: string; text: st
 
 /** 工程が割り当てられていない日付のスタイル（案件期間内だが工程未設定の日） */
 const UNASSIGNED_DAY_STYLE = { bg: "bg-theme-bg-elevated", border: "border-dashed border-theme-border", text: "text-theme-text-muted" };
+
+/** モーダル用：工程オプション・日付マップ変換（新規案件登録と同様のカレンダー編集用） */
+const MOVE_MODAL_PHASE_OPTIONS = ["組立", "解体", "準備中", "搬入", "養生", "その他"] as const;
+const MOVE_MODAL_PHASE_COLORS: Record<string, string> = {
+  "組立": "#22c55e", "解体": "#ef4444", "準備中": "#3b82f6", "搬入": "#f97316", "養生": "#eab308", "その他": "#a855f7"
+};
+const MOVE_MODAL_CUSTOM_PHASE_COLORS = ["#ec4899", "#8b5cf6", "#06b6d4", "#14b8a6", "#84cc16", "#f59e0b"];
+function moveModalGetPhaseColor(phaseName: string): string {
+  if (MOVE_MODAL_PHASE_COLORS[phaseName]) return MOVE_MODAL_PHASE_COLORS[phaseName];
+  let hash = 0;
+  for (let i = 0; i < phaseName.length; i++) hash = ((hash << 5) - hash + phaseName.charCodeAt(i)) & 0x7fffffff;
+  return MOVE_MODAL_CUSTOM_PHASE_COLORS[hash % MOVE_MODAL_CUSTOM_PHASE_COLORS.length];
+}
+type PhaseRange = { startDate: string; endDate: string; siteStatus: string };
+function phasesToDateMap(phases: PhaseRange[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const p of phases) {
+    const start = parseISO(p.startDate);
+    const end = parseISO(p.endDate);
+    const days = eachDayOfInterval({ start, end });
+    for (const d of days) map[format(d, "yyyy-MM-dd")] = p.siteStatus;
+  }
+  return map;
+}
+function dateMapToPhases(dateToPhase: Record<string, string>): PhaseRange[] {
+  const byPhase = new Map<string, string[]>();
+  for (const [date, status] of Object.entries(dateToPhase)) {
+    if (!status) continue;
+    if (!byPhase.has(status)) byPhase.set(status, []);
+    byPhase.get(status)!.push(date);
+  }
+  const result: PhaseRange[] = [];
+  for (const [siteStatus, dates] of byPhase.entries()) {
+    const sorted = [...dates].sort();
+    let i = 0;
+    while (i < sorted.length) {
+      const startDate = sorted[i];
+      let endDate = startDate;
+      while (i + 1 < sorted.length && format(addDays(parseISO(sorted[i]), 1), "yyyy-MM-dd") === sorted[i + 1]) {
+        i++;
+        endDate = sorted[i];
+      }
+      result.push({ startDate, endDate, siteStatus });
+      i++;
+    }
+  }
+  result.sort((a, b) => a.startDate.localeCompare(b.startDate));
+  return result;
+}
 
 function getPhaseStatusStyle(status: string) {
   return PHASE_STATUS_COLORS[status] ?? PHASE_STATUS_COLORS["その他"];
@@ -161,6 +212,7 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
   const [members, setMembers] = useState<Member[]>([]);
   const [customerMembers, setCustomerMembers] = useState<CustomerMember[]>([]);
   const [projectPhasesMap, setProjectPhasesMap] = useState<Map<string, { startDate: string; endDate: string; siteStatus: string }[]>>(new Map());
+  const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
   const [workLineOrder, setWorkLineOrder] = useState<string[]>(() => {
     if (typeof window === "undefined") return [];
     try {
@@ -174,6 +226,23 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
   });
   const [draggedWorkLineId, setDraggedWorkLineId] = useState<string | null>(null);
   const [dragOverWorkLineId, setDragOverWorkLineId] = useState<string | null>(null);
+  const [dragProject, setDragProject] = useState<{ projectId: string; workLineId: string } | null>(null);
+  /** ドロップ後の「班変更／未配置に戻す」＋ 任意で工期・工程変更するモーダル用 */
+  const [moveDropPending, setMoveDropPending] = useState<{
+    project: Project;
+    fromWorkLineId: string;
+    toLine: MergedWorkLine | "unassigned";
+  } | null>(null);
+  const [moveModalForm, setMoveModalForm] = useState<{
+    startDate: string;
+    endDate: string;
+    phases: { startDate: string; endDate: string; siteStatus: string }[];
+  } | null>(null);
+  /** 以前の作業班での割当（モーダル表示用・取得は useEffect） */
+  const [moveModalAssignments, setMoveModalAssignments] = useState<Assignment[]>([]);
+  /** 工程と日付をカレンダークリックで編集するための「日付→工程」マップ（新規案件登録と同様） */
+  const [moveModalDateToPhase, setMoveModalDateToPhase] = useState<Record<string, string>>({});
+  const [moveModalSelectedPhase, setMoveModalSelectedPhase] = useState<string>("");
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -258,11 +327,13 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
     const silent = options?.silent ?? false;
     try {
       if (!silent) setIsLoadingData(true);
-      const [lines, projs, membersData] = await Promise.all([
+      const [lines, projs, membersData, wgs] = await Promise.all([
         getWorkLines(),
         getProjects(),
-        getMembers()
+        getMembers(),
+        getWorkGroups()
       ]);
+      setWorkGroups(wgs);
       // 同一案件・同一作業班名の重複を解消（project_id + name でユニークに）
       const seen = new Set<string>();
       const dedupedLines = lines.filter((line) => {
@@ -336,6 +407,23 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
     }
   }, [currentWeekStart, isLoadingData, workLines.length]);
 
+  // 班変更モーダル表示時：以前の作業班の割当を取得
+  useEffect(() => {
+    if (!moveDropPending) {
+      setMoveModalAssignments([]);
+      return;
+    }
+    let cancelled = false;
+    getAssignments(moveDropPending.fromWorkLineId)
+      .then((list) => {
+        if (!cancelled) setMoveModalAssignments(list);
+      })
+      .catch(() => {
+        if (!cancelled) setMoveModalAssignments([]);
+      });
+    return () => { cancelled = true; };
+  }, [moveDropPending?.fromWorkLineId ?? null]);
+
   // 作業班名で統合（同一名は1行に集約）
   interface MergedWorkLine {
     id: string;
@@ -394,6 +482,101 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
     return mergedWorkLines.filter((line) => line.id === filteredWorkLineId);
   }, [filteredWorkLineId, mergedWorkLines]);
 
+  // 作業班が未割り当ての案件（未配置欄に表示）
+  const unassignedProjects = useMemo(() => {
+    const assignedProjectIds = new Set(workLines.map((w) => w.projectId).filter(Boolean));
+    return projects.filter((p) => !assignedProjectIds.has(p.id));
+  }, [projects, workLines]);
+
+  const assignProjectToWorkGroup = async (projectId: string, wg: WorkGroup) => {
+    try {
+      await createWorkLine({
+        projectId,
+        name: wg.name,
+        color: wg.color ?? "#6b7280"
+      });
+      toast.success("班を割り当てました。");
+      loadData({ silent: true });
+    } catch (err) {
+      console.error(err);
+      toast.error("班の割り当てに失敗しました。");
+    }
+  };
+
+  /** 物件を別の班に移動（ドロップ時）：以前のワークグループから削除してから、新しいワークグループに割り当て */
+  const moveProjectToLine = async (
+    projectId: string,
+    fromWorkLineId: string,
+    targetLine: MergedWorkLine
+  ) => {
+    try {
+      await deleteWorkLine(fromWorkLineId);
+      await createWorkLine({
+        projectId,
+        name: targetLine.name,
+        color: targetLine.color ?? "#6b7280"
+      });
+      toast.success("班を変更しました。");
+      loadData({ silent: true });
+    } catch (err) {
+      console.error(err);
+      toast.error("班の変更に失敗しました。");
+    }
+  };
+
+  /** 物件を未配置に戻す（ドロップ時） */
+  const unassignProjectFromLine = async (workLineId: string) => {
+    try {
+      await deleteWorkLine(workLineId);
+      toast.success("未配置に戻しました。");
+      loadData({ silent: true });
+    } catch (err) {
+      console.error(err);
+      toast.error("解除に失敗しました。");
+    }
+  };
+
+  /** ドロップ確定モーダルで「このまま実行」または 工期・工程変更後に実行 */
+  const executeMoveDrop = async (opts?: { updateDates?: boolean; updatePhases?: boolean }) => {
+    if (!moveDropPending || !moveModalForm) return;
+    const { project, fromWorkLineId, toLine } = moveDropPending;
+    try {
+      if (opts?.updateDates) {
+        await updateProject(project.id, {
+          startDate: moveModalForm.startDate,
+          endDate: moveModalForm.endDate
+        });
+      }
+      if (opts?.updatePhases) {
+        const phasesFromCalendar = dateMapToPhases(moveModalDateToPhase);
+        if (phasesFromCalendar.length > 0) {
+          await setProjectPhases(project.id, phasesFromCalendar);
+        }
+      }
+      if (toLine === "unassigned") {
+        await deleteWorkLine(fromWorkLineId);
+        toast.success("未配置に戻しました。");
+      } else {
+        await deleteWorkLine(fromWorkLineId);
+        await createWorkLine({
+          projectId: project.id,
+          name: toLine.name,
+          color: toLine.color ?? "#6b7280"
+        });
+        toast.success("班を変更しました。");
+      }
+      setMoveDropPending(null);
+      setMoveModalForm(null);
+      setMoveModalAssignments([]);
+      setMoveModalDateToPhase({});
+      setMoveModalSelectedPhase("");
+      loadData({ silent: true });
+    } catch (err) {
+      console.error(err);
+      toast.error(opts?.updateDates || opts?.updatePhases ? "保存に失敗しました。" : toLine === "unassigned" ? "解除に失敗しました。" : "班の変更に失敗しました。");
+    }
+  };
+
   // 統合行・日付に対する有効な work_line_id（その日の案件に紐づくものを優先）
   const getActiveWorkLineId = (merged: MergedWorkLine, date: string): string => {
     for (const wlId of merged.workLineIds) {
@@ -406,10 +589,20 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
     return merged.workLineIds[0] ?? "";
   };
 
-  // 統合行・日付に対する案件
+  // 統合行・日付に対する案件（1件目のみ・後方互換）
   const getProjectForMergedCell = (merged: MergedWorkLine, date: string): Project | null => {
     const wlId = getActiveWorkLineId(merged, date);
     return getProjectForWorkLine(wlId, date);
+  };
+
+  // 統合行・日付に対する全案件（かぶり時は複数。2列表示用）
+  const getCellProjectEntries = (merged: MergedWorkLine, date: string): { workLineId: string; project: Project }[] => {
+    const entries: { workLineId: string; project: Project }[] = [];
+    for (const wlId of merged.workLineIds) {
+      const project = getProjectForWorkLine(wlId, date);
+      if (project) entries.push({ workLineId: wlId, project });
+    }
+    return entries;
   };
 
   // 案件に紐づく取引先（ビジネスパートナー）メンバーを取得
@@ -1248,14 +1441,109 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
                       データを読み込み中...
                     </td>
                   </tr>
-                ) : displayedLines.length === 0 ? (
+                ) : displayedLines.length === 0 && unassignedProjects.length === 0 ? (
                   <tr>
                     <td colSpan={days.length + 1} className="text-center py-4 text-theme-text-muted">
                       作業グループが登録されていません。案件登録ページで作業グループを設定してください。
                     </td>
                   </tr>
                 ) : (
-                  displayedLines.map((line) => {
+                  <>
+                  {unassignedProjects.length > 0 && (
+                    <tr className="bg-theme-bg-elevated/50" style={{ minHeight: '110px' }}>
+                      <td
+                        className="sticky left-0 z-10 border-t border-r border-theme-border px-2 py-2 text-left align-top bg-theme-bg-elevated/60"
+                        style={{ minWidth: isMobile ? 50 : 100, minHeight: '110px' }}
+                      >
+                        <span className="text-[11px] md:text-xs font-medium text-theme-text-muted">未配置</span>
+                      </td>
+                      {days.map((d) => {
+                        const dayProjects = unassignedProjects.filter(
+                          (p) => d.iso >= p.startDate && d.iso <= p.endDate
+                        );
+                        return (
+                          <td
+                            key={d.iso}
+                            className={`border-t border-l border-theme-border align-top overflow-hidden ${dragProject ? "ring-1 ring-accent/50 bg-accent/5" : ""}`}
+                            style={{ maxWidth: 0, verticalAlign: 'top', padding: 0 }}
+                            onDragOver={(e) => {
+                              if (dragProject) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                e.dataTransfer.dropEffect = "move";
+                              }
+                            }}
+                            onDrop={(e) => {
+                              if (!dragProject) return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const raw = e.dataTransfer.getData("application/x-schedule-project");
+                              setDragProject(null);
+                              if (!raw) return;
+                              try {
+                                const { workLineId } = JSON.parse(raw);
+                                const projectId = workLines.find((w) => w.id === workLineId)?.projectId;
+                                const project = projectId ? projects.find((p) => p.id === projectId) : undefined;
+                                if (project) {
+                                  const phases = projectPhasesMap.get(project.id) ?? [];
+                                  setMoveDropPending({ project, fromWorkLineId: workLineId, toLine: "unassigned" });
+                                  setMoveModalForm({
+                                    startDate: project.startDate,
+                                    endDate: project.endDate,
+                                    phases
+                                  });
+                                  setMoveModalDateToPhase(phasesToDateMap(phases));
+                                  setMoveModalSelectedPhase(phases[0]?.siteStatus ?? "");
+                                } else {
+                                  unassignProjectFromLine(workLineId);
+                                }
+                              } catch {
+                                // ignore
+                              }
+                            }}
+                          >
+                            <div className="w-full h-full px-1.5 py-1.5 flex flex-col gap-1" style={{ minHeight: '110px', boxSizing: 'border-box' }}>
+                              {dayProjects.map((project) => (
+                                <div key={project.id} className="flex flex-col gap-1 flex-shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedProject(project);
+                                      setShowProjectModal(true);
+                                      setProjectModalClosing(false);
+                                    }}
+                                    className="text-[11px] font-semibold truncate rounded px-2 py-0.5 text-left border border-dashed border-theme-border bg-theme-bg-input hover:bg-theme-bg-elevated text-theme-text"
+                                  >
+                                    📋 {project.siteName}
+                                  </button>
+                                  {isAdmin && workGroups.length > 0 && (
+                                    <select
+                                      className="text-[10px] rounded border border-theme-border bg-theme-bg-input text-theme-text px-1.5 py-0.5 w-full"
+                                      value=""
+                                      onChange={(e) => {
+                                        const wgId = e.target.value;
+                                        if (!wgId) return;
+                                        const wg = workGroups.find((g) => g.id === wgId);
+                                        if (wg) assignProjectToWorkGroup(project.id, wg);
+                                        e.target.value = "";
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <option value="">班を割り当て...</option>
+                                      {workGroups.map((wg) => (
+                                        <option key={wg.id} value={wg.id}>{wg.name}</option>
+                                      ))}
+                                    </select>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  )}
+                  {displayedLines.map((line) => {
                   const isSelected = filteredWorkLineId === line.id;
                   const isDragging = draggedWorkLineId === line.id;
                   const isDragOver = dragOverWorkLineId === line.id;
@@ -1318,19 +1606,9 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
                       </td>
                     {days.map((d) => {
                       const iso = d.iso;
-                      const activeWlId = getActiveWorkLineId(line, iso);
-                      const cellAssignments = getCellAssignmentsForMerged(line, iso);
-                      const locked = isCellLockedForMerged(line, iso);
-                      const project = getProjectForMergedCell(line, iso);
-                      const weekday = new Date(iso).getDay();
-                      const isWeeklyHoliday =
-                        project?.defaultHolidayWeekdays?.includes(weekday) ?? false;
-                      const phaseStatus = getPhaseStatusForCell(activeWlId, iso);
-                      // 案件に工程が登録されているが、この日付には工程が割り当てられていないか
-                      const projectPhases = project ? projectPhasesMap.get(project.id) : undefined;
-                      const hasPhasesButUnassigned = !!project && (projectPhases?.length ?? 0) > 0 && !phaseStatus;
-                      // 案件とメンバーが割り当てられているかチェック
-                      const hasProjectAndMembers = project !== null && cellAssignments.length > 0;
+                      const cellEntries = getCellProjectEntries(line, iso);
+                      const slots = cellEntries.length > 0 ? cellEntries : [{ workLineId: line.workLineIds[0] ?? "", project: null as Project | null }];
+                      const twoCols = cellEntries.length > 1;
                       return (
                         <td
                           key={iso}
@@ -1340,152 +1618,160 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
                               : slideDirection === 'right' 
                               ? 'translate-x-[100%] opacity-0' 
                               : 'translate-x-0 opacity-100'
-                          }`}
+                          } ${dragProject ? "ring-1 ring-accent/50 bg-accent/5" : ""}`}
                           style={{ maxWidth: 0, verticalAlign: 'top', padding: 0, lineHeight: 'normal' }}
+                          onDragOver={(e) => {
+                            if (dragProject) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              e.dataTransfer.dropEffect = "move";
+                            }
+                          }}
+                          onDrop={(e) => {
+                            if (!dragProject) return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const raw = e.dataTransfer.getData("application/x-schedule-project");
+                            setDragProject(null);
+                            if (!raw) return;
+                            try {
+                              const { projectId, workLineId } = JSON.parse(raw);
+                              if (line.workLineIds.includes(workLineId)) return;
+                              const project = projects.find((p) => p.id === projectId);
+                              if (project) {
+                                const phases = projectPhasesMap.get(project.id) ?? [];
+                                setMoveDropPending({ project, fromWorkLineId: workLineId, toLine: line });
+                                setMoveModalForm({
+                                  startDate: project.startDate,
+                                  endDate: project.endDate,
+                                  phases
+                                });
+                                setMoveModalDateToPhase(phasesToDateMap(phases));
+                                setMoveModalSelectedPhase(phases[0]?.siteStatus ?? "");
+                              } else {
+                                moveProjectToLine(projectId, workLineId, line);
+                              }
+                            } catch {
+                              // ignore
+                            }
+                          }}
                         >
-                          <div className="w-full h-full px-1.5 py-1.5 flex flex-col gap-1" style={{ minHeight: '110px', boxSizing: 'border-box' }}>
-                            {/* 案件名・工程（割り当て済み＝色付き、未割り当て＝点線・薄色で区別） */}
-                            {project ? (
-                                <div className="flex items-center gap-1 flex-shrink-0">
+                          <div className={`w-full h-full px-1.5 py-1.5 ${twoCols ? "grid grid-cols-2 gap-1" : "flex flex-col gap-1"}`} style={{ minHeight: '110px', boxSizing: 'border-box' }}>
+                            {slots.map(({ workLineId: wlId, project }) => {
+                              const entryLocked = isCellLocked(wlId, iso);
+                              const entryAssignments = assignments.filter((a) => a.workLineId === wlId && a.date === iso && !a.isHoliday);
+                              const weekday = new Date(iso).getDay();
+                              const isWeeklyHoliday = project?.defaultHolidayWeekdays?.includes(weekday) ?? false;
+                              const phaseStatus = getPhaseStatusForCell(wlId, iso);
+                              const projectPhases = project ? projectPhasesMap.get(project.id) : undefined;
+                              const hasPhasesButUnassigned = !!project && (projectPhases?.length ?? 0) > 0 && !phaseStatus;
+                              const hasProjectAndMembers = project !== null && entryAssignments.length > 0;
+                              return (
+                                <div key={wlId} className="flex flex-col gap-1 min-w-0">
+                                  {project ? (
+                                    <>
+                                      <div className="flex items-center gap-1 flex-shrink-0">
+                                        <button
+                                          type="button"
+                                          draggable
+                                          onDragStart={(e) => {
+                                            e.stopPropagation();
+                                            setDragProject({ projectId: project.id, workLineId: wlId });
+                                            e.dataTransfer.effectAllowed = "move";
+                                            e.dataTransfer.setData("application/x-schedule-project", JSON.stringify({ projectId: project.id, workLineId: wlId }));
+                                          }}
+                                          onDragEnd={() => setDragProject(null)}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setProjectModalClosing(false);
+                                            setSelectedProject(project);
+                                            setShowProjectModal(true);
+                                          }}
+                                          className={`text-[11px] font-semibold truncate rounded px-2 py-0.5 text-left flex-1 min-w-0 transition-colors hover:opacity-90 border cursor-grab active:cursor-grabbing ${
+                                            phaseStatus
+                                              ? `${getPhaseStatusStyle(phaseStatus).bg} ${getPhaseStatusStyle(phaseStatus).border} ${getPhaseStatusStyle(phaseStatus).text}`
+                                              : hasPhasesButUnassigned
+                                              ? `${UNASSIGNED_DAY_STYLE.bg} ${UNASSIGNED_DAY_STYLE.border} ${UNASSIGNED_DAY_STYLE.text}`
+                                              : "bg-accent/10 hover:bg-accent/20 border-accent/30 text-accent"
+                                          }`}
+                                          title={`${project.siteName}${phaseStatus ? ` - ${phaseStatus}` : hasPhasesButUnassigned ? " - 工程未割り当て" : ""} - クリックで詳細／ドラッグで班を変更`}
+                                          style={{ height: '24px', minHeight: '24px', maxHeight: '24px' }}
+                                        >
+                                          📋 {project.siteName}
+                                        </button>
+                                      </div>
+                                      {getBPMembersForProject(project).length > 0 ? (
+                                        <div className="flex flex-wrap gap-1 min-w-0 items-center flex-shrink-0">
+                                          {getBPMembersForProject(project).map((m) => (
+                                            <span key={m.id} title={m.name} className="inline-flex flex-col items-center gap-0.5 flex-shrink-0 min-w-0">
+                                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full border-2 text-theme-text text-[10px] flex-shrink-0" style={{ borderColor: m.color || MEMBER_COLORS[0], backgroundColor: `${m.color || MEMBER_COLORS[0]}20` }}>
+                                                {getMemberShortName(m.name)}
+                                              </span>
+                                              <span className="text-[9px] text-theme-text-muted truncate max-w-[4.5em] leading-tight" style={{ maxWidth: "4.5em" }}>{getMemberNameLabel(m.name, 4)}</span>
+                                            </span>
+                                          ))}
+                                        </div>
+                                      ) : null}
+                                    </>
+                                  ) : null}
                                   <button
                                     type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setProjectModalClosing(false);
-                                      setSelectedProject(project);
-                                      setShowProjectModal(true);
-                                    }}
-                                    className={`text-[11px] font-semibold truncate rounded px-2 py-0.5 text-left flex-1 min-w-0 transition-colors hover:opacity-90 border ${
-                                      phaseStatus
-                                        ? `${getPhaseStatusStyle(phaseStatus).bg} ${getPhaseStatusStyle(phaseStatus).border} ${getPhaseStatusStyle(phaseStatus).text}`
-                                        : hasPhasesButUnassigned
-                                        ? `${UNASSIGNED_DAY_STYLE.bg} ${UNASSIGNED_DAY_STYLE.border} ${UNASSIGNED_DAY_STYLE.text}`
-                                        : "bg-accent/10 hover:bg-accent/20 border-accent/30 text-accent"
-                                    }`}
-                                    title={`${project.siteName}${phaseStatus ? ` - ${phaseStatus}` : hasPhasesButUnassigned ? " - 工程未割り当て" : ""} - クリックで詳細を表示`}
-                                    style={{ height: '24px', minHeight: '24px', maxHeight: '24px' }}
+                                    onClick={() => { if (!entryLocked) openSelection(wlId, iso); }}
+                                    disabled={entryLocked}
+                                    className={`w-full min-h-[36px] px-1.5 py-0.5 rounded min-w-0 overflow-hidden flex flex-col ${entryLocked ? "bg-theme-bg-input/40 text-theme-text-muted cursor-not-allowed" : "hover:bg-theme-bg-elevated/60"}`}
+                                    style={{ flexShrink: 0 }}
                                   >
-                                    📋 {project.siteName}
-                                  </button>
-                                </div>
-                              ) : null}
-                            {/* 取引先（ビジネスパートナー）メンバー表示（円＋名前） */}
-                            {project && getBPMembersForProject(project).length > 0 ? (
-                              <div className="flex flex-wrap gap-1 min-w-0 items-center flex-shrink-0">
-                                {getBPMembersForProject(project).map((m) => {
-                                  const bpColor = m.color || MEMBER_COLORS[0];
-                                  return (
-                                    <span
-                                      key={m.id}
-                                      title={m.name}
-                                      className="inline-flex flex-col items-center gap-0.5 flex-shrink-0 min-w-0"
-                                    >
-                                      <span
-                                        className="inline-flex items-center justify-center w-6 h-6 rounded-full border-2 text-theme-text text-[10px] flex-shrink-0"
-                                        style={{
-                                          borderColor: bpColor,
-                                          backgroundColor: `${bpColor}20`
-                                        }}
-                                      >
-                                        {getMemberShortName(m.name)}
-                                      </span>
-                                      <span className="text-[9px] text-theme-text-muted truncate max-w-[4.5em] leading-tight" style={{ maxWidth: "4.5em" }}>
-                                        {getMemberNameLabel(m.name, 4)}
-                                      </span>
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            ) : null}
-                          <button
-                            type="button"
-                              onClick={() => {
-                                if (locked) return;
-                                openSelection(activeWlId, iso);
-                              }}
-                              disabled={locked}
-                              className={`w-full h-full min-h-[40px] px-1.5 py-0.5 rounded min-w-0 overflow-hidden flex flex-col ${
-                                locked
-                                  ? "bg-theme-bg-input/40 text-theme-text-muted cursor-not-allowed"
-                                  : "hover:bg-theme-bg-elevated/60"
-                              }`}
-                              style={{ flexShrink: 0 }}
-                          >
-                              <div className="flex flex-wrap gap-1 min-w-0 items-center justify-center content-center flex-1">
-                                {isWeeklyHoliday ? (
-                                  <div
-                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-rose-500/60 bg-rose-500/15 text-[11px] font-medium text-rose-200"
-                                    title="この案件では週休日として設定されています"
-                                  >
-                                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-500/80 text-[10px] font-bold text-white">
-                                      休
-                                    </span>
-                                    <span>休日</span>
-                                  </div>
-                                ) : (
-                                  <>
-                                        {cellAssignments.map((a) => {
-                                          const member =
-                                            members.find(
-                                              (m) => m.id === a.memberId
-                                            ) ?? members[0];
+                                    <div className="flex flex-wrap gap-1 min-w-0 items-center justify-center content-center flex-1">
+                                      {isWeeklyHoliday ? (
+                                        <div className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-rose-500/60 bg-rose-500/15 text-[11px] font-medium text-rose-200" title="この案件では週休日として設定されています">
+                                          <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-500/80 text-[10px] font-bold text-white">休</span>
+                                          <span>休日</span>
+                                        </div>
+                                      ) : (
+                                        entryAssignments.map((a) => {
+                                          const member = members.find((m) => m.id === a.memberId) ?? members[0];
                                           const memberColor = getMemberColor(a.memberId, members);
                                           return (
-                                            <span
-                                              key={a.id}
-                                              title={member.name}
-                                              className="inline-flex flex-col items-center justify-center gap-0.5 flex-shrink-0 min-w-0 text-center"
-                                            >
-                                              <span
-                                                className="inline-flex items-center justify-center w-6 h-6 rounded-full border-2 text-theme-text text-[10px] flex-shrink-0"
-                                                style={{
-                                                  borderColor: memberColor,
-                                                  backgroundColor: `${memberColor}20`
-                                                }}
-                                              >
+                                            <span key={a.id} title={member.name} className="inline-flex flex-col items-center justify-center gap-0.5 flex-shrink-0 min-w-0 text-center">
+                                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full border-2 text-theme-text text-[10px] flex-shrink-0" style={{ borderColor: memberColor, backgroundColor: `${memberColor}20` }}>
                                                 {getMemberShortName(member.name)}
                                               </span>
-                                              <span className="text-[9px] text-theme-text-muted truncate max-w-[4.5em] leading-tight" style={{ maxWidth: "4.5em" }}>
-                                                {getMemberNameLabel(member.name, 4)}
-                                              </span>
+                                              <span className="text-[9px] text-theme-text-muted truncate max-w-[4.5em] leading-tight" style={{ maxWidth: "4.5em" }}>{getMemberNameLabel(member.name, 4)}</span>
                                             </span>
                                           );
-                                        })}
-                                      </>
-                                )}
-                              </div>
-                          </button>
-                          
-                            <div className="flex items-center justify-end text-[9px] text-theme-text-muted min-w-0 flex-shrink-0" style={{ height: '24px', minHeight: '24px', maxHeight: '24px', flexShrink: 0, marginTop: 'auto' }}>
-                              {isAdmin && hasProjectAndMembers && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (!isPastDate(iso)) toggleLock(activeWlId, iso);
-                                  }}
-                                  disabled={isPastDate(iso) && !monthEndVerifyMode}
-                                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs transition-all flex-shrink-0 ${
-                                    isPastDate(iso) && !monthEndVerifyMode
-                                      ? "bg-theme-bg-elevated/60 text-theme-text-muted border border-theme-border cursor-default"
-                                      : locked
-                                        ? "bg-accent/20 text-accent border border-accent/50 hover:scale-110 hover:bg-accent/30"
-                                        : "bg-theme-bg-elevated/60 text-theme-text-muted border border-theme-border hover:scale-110 hover:bg-theme-bg-elevated-hover hover:text-theme-text"
-                                  }`}
-                                  title={isPastDate(iso) && !monthEndVerifyMode ? "過去のため編集不可（月末確認モードで編集可）" : locked ? "ロック解除" : "この日を確定"}
-                                  style={{ flexShrink: 0 }}
-                                >
-                                  {locked ? "🔒" : "🔓"}
-                                </button>
-                              )}
-                            </div>
+                                        })
+                                      )}
+                                    </div>
+                                  </button>
+                                  <div className="flex items-center justify-end text-[9px] text-theme-text-muted min-w-0 flex-shrink-0" style={{ height: '24px', minHeight: '24px', maxHeight: '24px' }}>
+                                    {isAdmin && hasProjectAndMembers && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); if (!isPastDate(iso)) toggleLock(wlId, iso); }}
+                                        disabled={isPastDate(iso) && !monthEndVerifyMode}
+                                        className={`w-6 h-6 rounded-full flex items-center justify-center text-xs transition-all flex-shrink-0 ${
+                                          isPastDate(iso) && !monthEndVerifyMode ? "bg-theme-bg-elevated/60 text-theme-text-muted border border-theme-border cursor-default"
+                                          : entryLocked ? "bg-accent/20 text-accent border border-accent/50 hover:scale-110 hover:bg-accent/30"
+                                          : "bg-theme-bg-elevated/60 text-theme-text-muted border border-theme-border hover:scale-110 hover:bg-theme-bg-elevated-hover hover:text-theme-text"
+                                        }`}
+                                        title={isPastDate(iso) && !monthEndVerifyMode ? "過去のため編集不可" : entryLocked ? "ロック解除" : "この日を確定"}
+                                        style={{ flexShrink: 0 }}
+                                      >
+                                        {entryLocked ? "🔒" : "🔓"}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         </td>
                       );
                     })}
                   </tr>
                   );
-                  })
+                  })}
+                  </>
                 )}
               </tbody>
               <tfoot>
@@ -1524,15 +1810,15 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
             onClick={() => setProjectModalClosing(true)}
           />
           <div
-            className={`relative w-full max-w-[500px] rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg p-6 text-sm transition-all duration-200 ease-out ${
+            className={`relative w-full max-w-[500px] rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg p-4 text-sm transition-all duration-200 ease-out ${
               projectModalClosing || !projectModalAnimatingIn
                 ? "opacity-0 scale-95 translate-y-2"
                 : "opacity-100 scale-100 translate-y-0"
             }`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-theme-text">案件詳細</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-semibold text-theme-text">案件詳細</h3>
               <button
                 type="button"
                 onClick={() => setProjectModalClosing(true)}
@@ -1541,7 +1827,7 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
                 ×
               </button>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               <div>
                 <label className="text-xs text-theme-text-muted block mb-1">現場名</label>
                 <div className="text-sm font-semibold text-accent">{selectedProject.siteName}</div>
@@ -1628,7 +1914,7 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
                       href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedProject.siteAddress.trim())}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 shrink-0 px-3 py-1.5 rounded-md bg-accent/15 border border-accent/40 text-accent text-xs font-medium hover:bg-accent/25"
+                      className="inline-flex items-center gap-1 shrink-0 px-2 py-1 rounded-md bg-accent/15 border border-accent/40 text-accent text-[11px] font-medium hover:bg-accent/25"
                     >
                       <span aria-hidden>🗺</span>
                       地図で開く
@@ -1649,14 +1935,230 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
                 </div>
               </div>
             </div>
-            <div className="mt-6 flex justify-end">
+            <div className="mt-3 flex justify-end">
               <button
                 type="button"
                 onClick={() => setProjectModalClosing(true)}
-                className="px-4 py-2 rounded-md bg-theme-bg-elevated border border-theme-border text-xs hover:bg-theme-bg-elevated-hover"
+                className="px-2.5 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-[11px] hover:bg-theme-bg-elevated-hover"
               >
                 閉じる
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ドロップ時：班変更／未配置に戻す ＋ 任意で工期・工程変更 */}
+      {moveDropPending && moveModalForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/50"
+            aria-label="閉じる"
+            onClick={() => {
+              setMoveDropPending(null);
+              setMoveModalForm(null);
+              setMoveModalAssignments([]);
+              setMoveModalDateToPhase({});
+              setMoveModalSelectedPhase("");
+            }}
+          />
+          <div className="relative w-full max-w-lg max-h-[90vh] flex flex-col rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg overflow-hidden">
+            <div className="shrink-0 p-3 border-b border-theme-border">
+              <h3 className="text-sm font-semibold mb-0.5">
+                {moveDropPending.toLine === "unassigned" ? "未配置に戻す" : "班を変更"}
+              </h3>
+              <p className="text-theme-text-muted text-[11px] mb-2">
+                【{moveDropPending.project.siteName}】を{" "}
+                {moveDropPending.toLine === "unassigned" ? "未配置" : moveDropPending.toLine.name} に
+                {moveDropPending.toLine === "unassigned" ? "戻します。" : "移動します。"}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => executeMoveDrop()}
+                  className="px-2 py-1 rounded-md bg-accent text-accent-foreground text-[11px] hover:opacity-90"
+                >
+                  このまま実行
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMoveDropPending(null);
+                    setMoveModalForm(null);
+                    setMoveModalAssignments([]);
+                    setMoveModalDateToPhase({});
+                    setMoveModalSelectedPhase("");
+                  }}
+                  className="px-2 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-[11px] hover:bg-theme-bg-elevated-hover"
+                >
+                  キャンセル
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
+              {/* 以前の作業班での割当を表示 */}
+              <div>
+                <div className="text-[11px] font-medium text-theme-text-muted mb-1.5">以前の作業班での割当</div>
+                <div className="rounded border border-theme-border bg-theme-bg-input p-2 max-h-32 overflow-y-auto text-[11px] text-theme-text">
+                  {moveModalAssignments.length === 0 ? (
+                    <p className="text-theme-text-muted">割当なし、または読み込み中...</p>
+                  ) : (
+                    (() => {
+                      const start = moveDropPending.project.startDate;
+                      const end = moveDropPending.project.endDate;
+                      const byDate = new Map<string, Assignment[]>();
+                      for (const a of moveModalAssignments) {
+                        if (a.date < start || a.date > end || a.isHoliday) continue;
+                        const list = byDate.get(a.date) ?? [];
+                        list.push(a);
+                        byDate.set(a.date, list);
+                      }
+                      const dates = Array.from(byDate.keys()).sort();
+                      if (dates.length === 0) return <p className="text-theme-text-muted">工期内の割当はありません</p>;
+                      return (
+                        <ul className="space-y-1">
+                          {dates.map((date) => {
+                            const list = byDate.get(date) ?? [];
+                            const names = list.map((a) => members.find((m) => m.id === a.memberId)?.name ?? a.memberId).filter(Boolean);
+                            return (
+                              <li key={date} className="flex gap-2">
+                                <span className="text-theme-text-muted shrink-0">{date}</span>
+                                <span>{names.join("、") || "—"}</span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      );
+                    })()
+                  )}
+                </div>
+              </div>
+
+              {/* 工期を変更して実行 */}
+              <div>
+                <div className="text-[11px] font-medium text-theme-text-muted mb-1">工期を変更して実行</div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <input
+                    type="date"
+                    value={moveModalForm.startDate}
+                    onChange={(e) => setMoveModalForm((f) => (f ? { ...f, startDate: e.target.value } : f))}
+                    className="rounded border border-theme-border bg-theme-bg-input text-theme-text px-2 py-1 text-xs"
+                  />
+                  <span className="text-theme-text-muted">〜</span>
+                  <input
+                    type="date"
+                    value={moveModalForm.endDate}
+                    onChange={(e) => setMoveModalForm((f) => (f ? { ...f, endDate: e.target.value } : f))}
+                    className="rounded border border-theme-border bg-theme-bg-input text-theme-text px-2 py-1 text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => executeMoveDrop({ updateDates: true })}
+                    className="px-2 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-[11px] hover:bg-theme-bg-elevated-hover"
+                  >
+                    変更して実行
+                  </button>
+                </div>
+              </div>
+
+              {/* 工程と日付をカレンダーで編集（新規案件登録と同様にクリックで割り当て） */}
+              <div>
+                <div className="text-[11px] font-medium text-theme-text-muted mb-1">工程と日付を編集</div>
+                <p className="text-[11px] text-theme-text-muted mb-2">
+                  工程を選び、カレンダーの日付をクリックして割り当てます。同じ日を再度クリックで解除。
+                </p>
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <label className="text-[11px] text-theme-text-muted shrink-0">選択中の工程:</label>
+                  <input
+                    list="move-modal-phase-datalist"
+                    type="text"
+                    value={moveModalSelectedPhase}
+                    onChange={(e) => setMoveModalSelectedPhase(e.target.value)}
+                    placeholder="例: 組立"
+                    className="rounded border border-theme-border bg-theme-bg-input text-theme-text placeholder:text-theme-text-muted px-2 py-1 text-xs min-w-[100px]"
+                    style={{ borderColor: moveModalGetPhaseColor(moveModalSelectedPhase) }}
+                  />
+                  <datalist id="move-modal-phase-datalist">
+                    {MOVE_MODAL_PHASE_OPTIONS.map((p) => (
+                      <option key={p} value={p} />
+                    ))}
+                  </datalist>
+                </div>
+                <div className="rounded border border-theme-border bg-theme-bg-input p-2 max-h-[280px] overflow-y-auto">
+                  {(() => {
+                    const today = new Date();
+                    const currentYear = today.getFullYear();
+                    const currentMonth = today.getMonth();
+                    const months: Date[] = [];
+                    for (let m = currentMonth; m <= 11; m++) months.push(new Date(currentYear, m, 1));
+                    const toggleDatePhase = (dateStr: string) => {
+                      setMoveModalDateToPhase((prev) => {
+                        const current = prev[dateStr];
+                        if (current === moveModalSelectedPhase) {
+                          const next = { ...prev };
+                          delete next[dateStr];
+                          return next;
+                        }
+                        return { ...prev, [dateStr]: moveModalSelectedPhase };
+                      });
+                    };
+                    return (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {months.map((monthFirst) => {
+                          const monthKey = format(monthFirst, "yyyy-MM");
+                          const monthStart = startOfWeek(startOfMonth(monthFirst), { weekStartsOn: 0 });
+                          const monthEnd = endOfWeek(endOfMonth(monthFirst), { weekStartsOn: 0 });
+                          const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
+                          const pad = getDay(monthFirst);
+                          return (
+                            <div key={monthKey} className="border border-theme-border rounded p-2 bg-theme-bg-elevated/50">
+                              <div className="text-[11px] font-semibold text-center mb-1.5">{format(monthFirst, "yyyy年 M月", { locale: ja })}</div>
+                              <div className="grid grid-cols-7 gap-0.5 text-center">
+                                {["日", "月", "火", "水", "木", "金", "土"].map((w, idx) => (
+                                  <div key={w} className={`text-[9px] font-medium ${idx === 0 ? "text-red-400" : idx === 6 ? "text-blue-400" : "text-theme-text-muted"}`}>{w}</div>
+                                ))}
+                                {Array.from({ length: pad }, (_, i) => <div key={`pad-${i}`} />)}
+                                {days.slice(pad).map((d) => {
+                                  const dateStr = format(d, "yyyy-MM-dd");
+                                  const phase = moveModalDateToPhase[dateStr];
+                                  const color = phase ? moveModalGetPhaseColor(phase) : undefined;
+                                  const isCurrentMonth = format(d, "yyyy-MM") === monthKey;
+                                  return (
+                                    <button
+                                      key={dateStr}
+                                      type="button"
+                                      onClick={() => isCurrentMonth && toggleDatePhase(dateStr)}
+                                      disabled={!isCurrentMonth}
+                                      className={`rounded-full aspect-square flex items-center justify-center text-[10px] font-medium min-w-[22px] min-h-[22px] ${!isCurrentMonth ? "opacity-30 cursor-not-allowed" : ""}`}
+                                      style={{
+                                        backgroundColor: color ?? "transparent",
+                                        borderColor: color ?? "var(--color-border)",
+                                        borderWidth: color ? 2 : 1,
+                                        color: color ? "#fff" : "var(--theme-text-muted)"
+                                      }}
+                                      title={phase ? `${dateStr} ${phase}` : dateStr}
+                                    >
+                                      {format(d, "d")}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => executeMoveDrop({ updatePhases: true })}
+                  className="mt-1.5 px-2 py-1 rounded-md bg-theme-bg-elevated border border-theme-border text-[11px] hover:bg-theme-bg-elevated-hover"
+                >
+                  工程を変更して実行
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1673,13 +2175,13 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
             onClick={() => setSelectionModalClosing(true)}
           />
           <div
-            className={`relative w-full max-w-[420px] min-h-[280px] rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg p-4 text-xs transition-all duration-200 ease-out ${
+            className={`relative w-full max-w-[420px] min-h-[260px] rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg p-3 text-xs transition-all duration-200 ease-out ${
               selectionModalClosing || !selectionModalAnimatingIn
                 ? "opacity-0 scale-95 translate-y-2"
                 : "opacity-100 scale-100 translate-y-0"
             }`}
           >
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-2">
               <div>
                 <div className="text-sm font-semibold">人員選択</div>
                 <div className="text-[11px] text-theme-text-muted mt-0.5">
@@ -1699,7 +2201,7 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
               const proj = getProjectForWorkLine(selection.workLineId, selection.date);
               const holidayWeekdays = proj?.defaultHolidayWeekdays ?? [];
               return holidayWeekdays.length > 0 ? (
-                <div className="mb-3 px-3 py-2 rounded-md bg-theme-bg-elevated border border-theme-border">
+                <div className="mb-2 px-2 py-1.5 rounded-md bg-theme-bg-elevated border border-theme-border">
                   <div className="text-[11px] text-theme-text-muted-strong mb-0.5">この案件の標準週休日</div>
                   <div className="text-[11px] text-theme-text">
                     {holidayWeekdays
@@ -1761,7 +2263,7 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
                       key={label}
                       type="button"
                       onClick={() => toggleSelectionHolidayWeekday(i)}
-                      className={`w-8 h-8 rounded-full text-[11px] font-medium border transition-colors ${
+                      className={`w-7 h-7 rounded-full text-[10px] font-medium border transition-colors ${
                         selectionHolidayWeekdays.includes(i)
                           ? "bg-accent border-accent text-white"
                           : "bg-theme-bg-input text-theme-text border-theme-border hover:bg-theme-bg-elevated"
@@ -1782,18 +2284,18 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
                   )}
                 </div>
               </div>
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-1.5 pt-1.5">
                 <button
                   type="button"
                   onClick={() => setSelectionModalClosing(true)}
-                  className="px-3 py-1 rounded-md border border-theme-border text-[11px]"
+                  className="px-2 py-1 rounded-md border border-theme-border text-[11px]"
                 >
                   キャンセル
                 </button>
                 <button
                   type="button"
                   onClick={applySelection}
-                  className="px-3 py-1 rounded-md bg-accent text-[11px] font-medium"
+                  className="px-2 py-1 rounded-md bg-accent text-[11px] font-medium"
                 >
                   確定
                 </button>
@@ -1814,13 +2316,13 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
             onClick={closeBulkAssignModal}
           />
           <div
-            className={`relative w-full max-w-[500px] max-h-[90vh] overflow-y-auto rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg p-4 text-xs transition-all duration-200 ease-out ${
+            className={`relative w-full max-w-[500px] max-h-[90vh] overflow-y-auto rounded-xl bg-theme-bg-input border border-theme-border text-theme-text shadow-lg p-3 text-xs transition-all duration-200 ease-out ${
               bulkAssignModalClosing || !bulkAssignModalAnimatingIn
                 ? "opacity-0 scale-95 translate-y-2"
                 : "opacity-100 scale-100 translate-y-0"
             }`}
           >
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-3">
               <div>
                 <div className="text-sm font-semibold">期間まとめて配置</div>
                 <div className="text-[11px] text-theme-text-muted mt-0.5">
@@ -1835,7 +2337,7 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
                 ×
               </button>
             </div>
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div>
                 <label className="block mb-1 text-[11px] text-theme-text-muted-strong">作業班</label>
                 <select
@@ -1879,14 +2381,14 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
                 <div className="flex items-center gap-2">
                   <input
                     type="date"
-                    className="flex-1 rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-3 py-2"
+                    className="flex-1 rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-2 py-1 text-[11px]"
                     value={modalRangeStart}
                     onChange={(e) => setModalRangeStart(e.target.value)}
                   />
                   <span className="text-theme-text-muted">〜</span>
                   <input
                     type="date"
-                    className="flex-1 rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-3 py-2"
+                    className="flex-1 rounded-md bg-theme-bg-elevated border border-theme-border text-theme-text px-2 py-1 text-[11px]"
                     value={modalRangeEnd}
                     onChange={(e) => setModalRangeEnd(e.target.value)}
                   />
@@ -2015,7 +2517,7 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
                       key={label}
                       type="button"
                       onClick={() => toggleModalHolidayWeekday(i)}
-                      className={`w-8 h-8 rounded-full text-[11px] border ${
+                      className={`w-7 h-7 rounded-full text-[10px] border ${
                         modalHolidayWeekdays.includes(i)
                           ? "bg-theme-card text-theme-text border-theme-border"
                           : "bg-theme-bg-input text-theme-text border-theme-border"
@@ -2026,11 +2528,11 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
                   ))}
                 </div>
               </div>
-              <div className="flex justify-end gap-2 pt-2 border-t border-theme-border">
+              <div className="flex justify-end gap-1.5 pt-1.5 border-t border-theme-border">
                 <button
                   type="button"
                   onClick={closeBulkAssignModal}
-                  className="px-4 py-2 rounded-md border border-theme-border text-theme-text text-[11px] hover:bg-theme-bg-elevated"
+                  className="px-2.5 py-1 rounded-md border border-theme-border text-theme-text text-[11px] hover:bg-theme-bg-elevated"
                 >
                   キャンセル
                 </button>
@@ -2043,7 +2545,7 @@ function SchedulePageInner({ embedded }: { embedded: boolean }) {
                     !modalRangeEnd ||
                     modalMemberIds.length === 0
                   }
-                  className="px-4 py-2 rounded-md bg-accent text-[11px] font-medium hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-2.5 py-1 rounded-md bg-accent text-[11px] font-medium hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   確定
                 </button>
